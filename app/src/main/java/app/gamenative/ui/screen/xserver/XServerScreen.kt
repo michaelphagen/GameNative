@@ -108,6 +108,7 @@ import app.gamenative.ui.data.XServerState
 import app.gamenative.ui.widget.PerformanceHudView
 import app.gamenative.utils.AssetUtils
 import app.gamenative.utils.ContainerUtils
+import app.gamenative.utils.CoverScreenManager
 import app.gamenative.utils.downloader.CoreDriverDownloader
 import app.gamenative.utils.CustomGameScanner
 import app.gamenative.utils.ExecutableSelectionUtils
@@ -446,8 +447,20 @@ fun XServerScreen(
     var exitWatchJob: Job? by remember { mutableStateOf(null) }
     val keyboardEscMenuHandler = remember(scope) { KeyboardEscMenuHandler(scope) }
 
+    val coverScreenManager = remember(activity) { activity?.let { CoverScreenManager(it) } }
+    LaunchedEffect(coverScreenManager) {
+        if (coverScreenManager != null && PrefManager.coverScreenShoulderButtons) {
+            coverScreenManager.start(this) { binding, pressed ->
+                PluviaApp.inputControlsView?.let { icView ->
+                    if (icView.profile != null) icView.handleInputEvent(binding, pressed)
+                }
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
+            coverScreenManager?.stop()
             physicalControllerHandler?.cleanup()
             physicalControllerHandler = null
             exitWatchJob?.cancel()

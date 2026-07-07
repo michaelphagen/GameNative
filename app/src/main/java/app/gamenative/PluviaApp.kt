@@ -68,6 +68,9 @@ class PluviaApp : SplitCompatApplication() {
             Timber.plant(ReleaseTree())
         }
 
+        // Rebuild package-dependent container path defaults before anything touches them
+        Container.initDefaultPaths(this)
+
         NetworkMonitor.init(this)
 
         // Init our custom crash handler.

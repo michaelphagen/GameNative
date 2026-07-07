@@ -339,6 +339,18 @@ fun SettingsGroupInterface(
             },
         )
 
+        var coverScreenShoulderButtons by rememberSaveable { mutableStateOf(PrefManager.coverScreenShoulderButtons) }
+        SettingsSwitch(
+            colors = settingsTileColorsAlt(),
+            title = { Text(text = stringResource(R.string.settings_interface_cover_screen_shoulder_title)) },
+            subtitle = { Text(text = stringResource(R.string.settings_interface_cover_screen_shoulder_subtitle)) },
+            state = coverScreenShoulderButtons,
+            onCheckedChange = {
+                coverScreenShoulderButtons = it
+                PrefManager.coverScreenShoulderButtons = it
+            },
+        )
+
         var showRecommendations by rememberSaveable { mutableStateOf(PrefManager.showRecommendations) }
         SettingsSwitch(
             colors = settingsTileColorsAlt(),

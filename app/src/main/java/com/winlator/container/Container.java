@@ -1,5 +1,6 @@
 package com.winlator.container;
 
+import android.content.Context;
 import android.os.Environment;
 import android.util.Log;
 
@@ -47,15 +48,40 @@ public class Container {
     public static final String DEFAULT_GRAPHICSDRIVERCONFIG = "vulkanVersion=1.3" + ",version=" + DefaultVersion.WRAPPER + ",blacklistedExtensions=" + ",maxDeviceMemory=0" + ",presentMode=mailbox" + ",syncFrame=0" + ",disablePresentWait=0" + ",resourceType=auto" + ",bcnEmulation=auto" + ",bcnEmulationType=compute" + ",bcnEmulationCache=0" + ",gpuName=Device";
     public static final String DEFAULT_WINCOMPONENTS = "direct3d=1,directsound=1,directinput8=0,directinput=0,directmusic=0,directshow=0,directplay=0,vcrun2010=1,wmdecoder=1,opengl=0";
     public static final String FALLBACK_WINCOMPONENTS = "direct3d=1,directsound=1,directinput8=0,directinput=0,directmusic=1,directshow=1,directplay=1,vcrun2010=1,wmdecoder=1,opengl=0";
-    public static final String[] MEDIACONV_ENV_VARS = {
-            "MEDIACONV_AUDIO_DUMP_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/audio.dmp",
-            "MEDIACONV_VIDEO_DUMP_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/video.dmp",
-            "MEDIACONV_VIDEO_TRANSCODED_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/transcoded.mkv",
-            "MEDIACONV_AUDIO_TRANSCODED_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/transcoded.wav",
-            "MEDIACONV_BLANK_AUDIO_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/blank.wav",
-            "MEDIACONV_BLANK_VIDEO_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/blank.mkv",
-    };
-    public static final String DEFAULT_DRIVES = "D:"+Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)+"E:/data/data/app.gamenative/storage";
+    // App data dir; rebuilt from the real package name in initDefaultPaths() so builds with an
+    // applicationIdSuffix (e.g. .gold) don't point at another app's data. For the standard
+    // "app.gamenative" package the resulting strings are identical to the historical literals.
+    private static String packageDataDir = "/data/data/app.gamenative";
+    public static String[] MEDIACONV_ENV_VARS = buildMediaConvEnvVars();
+    public static String DEFAULT_DRIVES = buildDefaultDrives();
+
+    /** Must be called before any container is created or loaded (see PluviaApp.onCreate). */
+    public static void initDefaultPaths(Context context) {
+        packageDataDir = "/data/data/" + context.getPackageName();
+        MEDIACONV_ENV_VARS = buildMediaConvEnvVars();
+        DEFAULT_DRIVES = buildDefaultDrives();
+    }
+
+    /** App-private dir exposed to containers as the E: drive. */
+    public static String getStoragePath() {
+        return packageDataDir + "/storage";
+    }
+
+    private static String[] buildMediaConvEnvVars() {
+        String home = packageDataDir + "/files/imagefs/home/xuser";
+        return new String[]{
+                "MEDIACONV_AUDIO_DUMP_FILE=" + home + "/audio.dmp",
+                "MEDIACONV_VIDEO_DUMP_FILE=" + home + "/video.dmp",
+                "MEDIACONV_VIDEO_TRANSCODED_FILE=" + home + "/transcoded.mkv",
+                "MEDIACONV_AUDIO_TRANSCODED_FILE=" + home + "/transcoded.wav",
+                "MEDIACONV_BLANK_AUDIO_FILE=" + home + "/blank.wav",
+                "MEDIACONV_BLANK_VIDEO_FILE=" + home + "/blank.mkv",
+        };
+    }
+
+    private static String buildDefaultDrives() {
+        return "D:" + Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS) + "E:" + getStoragePath();
+    }
     public static final String DEFAULT_VARIANT = DefaultVersion.VARIANT;
     public static final String DEFAULT_WINE_VERSION = DefaultVersion.WINE_VERSION;
     public static final byte STARTUP_SELECTION_NORMAL = 0;

@@ -726,6 +726,14 @@ object PrefManager {
             setPref(DISABLE_MOUSE_INPUT, value)
         }
 
+    // Show L1/L2/L3/R1/R2/R3 on the cover screen of foldable devices during games
+    private val COVER_SCREEN_SHOULDER_BUTTONS = booleanPreferencesKey("cover_screen_shoulder_buttons")
+    var coverScreenShoulderButtons: Boolean
+        get() = getPref(COVER_SCREEN_SHOULDER_BUTTONS, false)
+        set(value) {
+            setPref(COVER_SCREEN_SHOULDER_BUTTONS, value)
+        }
+
     private val PORTRAIT_MODE = booleanPreferencesKey("portrait_mode")
     var portraitMode: Boolean
         get() = getPref(PORTRAIT_MODE, false)

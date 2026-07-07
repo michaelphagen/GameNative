@@ -153,6 +153,8 @@ public class InputControlsView extends View {
                 for (ControlElement element : profile.getElements()) {
                     // Hide STICK elements replaced by container shooter mode
                     if (isStickHiddenByShooterMode(element)) continue;
+                    // Hide shoulder buttons shown on the foldable cover screen
+                    if (isHiddenByCoverScreen(element)) continue;
                     element.draw(canvas);
                 }
             }
@@ -408,6 +410,16 @@ public class InputControlsView extends View {
 
     public void triggerShowKeyboard() {
         if (showKeyboardCallback != null) showKeyboardCallback.run();
+    }
+
+    /** Check if a shoulder/stick-click BUTTON element is replaced by the foldable cover screen overlay. */
+    private boolean isHiddenByCoverScreen(ControlElement element) {
+        if (editMode || !app.gamenative.utils.CoverScreenManager.isSessionActive()) return false;
+        if (element.getType() != ControlElement.Type.BUTTON) return false;
+        Binding binding = element.getBindingAt(0);
+        return binding == Binding.GAMEPAD_BUTTON_L1 || binding == Binding.GAMEPAD_BUTTON_R1 ||
+               binding == Binding.GAMEPAD_BUTTON_L2 || binding == Binding.GAMEPAD_BUTTON_R2 ||
+               binding == Binding.GAMEPAD_BUTTON_L3 || binding == Binding.GAMEPAD_BUTTON_R3;
     }
 
     /** Check if a STICK element should be hidden because container shooter mode replaces it. */
@@ -737,6 +749,7 @@ public class InputControlsView extends View {
         for (ControlElement element : profile.getElements()) {
             // Skip hidden sticks in container shooter mode
             if (isStickHiddenByShooterMode(element)) continue;
+            if (isHiddenByCoverScreen(element)) continue;
             if (element.handleTouchDown(pointerId, x, y)) {
                 performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
                 handled = true;
@@ -867,6 +880,7 @@ public class InputControlsView extends View {
                     touchpadView.setPointerButtonLeftEnabled(true);
                     touchpadView.setPointerButtonRightEnabled(true);
                     for (ControlElement element : profile.getElements()) {
+                        if (isHiddenByCoverScreen(element)) continue;
                         if (element.handleTouchDown(pointerId, x, y)) {
                             performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
                             handled = true;

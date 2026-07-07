@@ -188,19 +188,21 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
 
         final int MAX_PLAYERS = 1; // old static method
 
+        Context context = environment.getContext();
+
         // Get the number of enabled players directly from ControllerManager.
         final int enabledPlayerCount = MAX_PLAYERS;
         for (int i = 0; i < enabledPlayerCount; i++) {
-            String memPath;
+            String memName;
             if (i == 0) {
                 // Player 1 uses the original, non-numbered path that is known to work.
-                memPath = "/data/data/app.gamenative/files/imagefs/tmp/gamepad.mem";
+                memName = "imagefs/tmp/gamepad.mem";
             } else {
                 // Players 2, 3, 4 use a 1-based index.
-                memPath = "/data/data/app.gamenative/files/imagefs/tmp/gamepad" + i + ".mem";
+                memName = "imagefs/tmp/gamepad" + i + ".mem";
             }
 
-            File memFile = new File(memPath);
+            File memFile = new File(context.getFilesDir(), memName);
             memFile.getParentFile().mkdirs();
             try (RandomAccessFile raf = new RandomAccessFile(memFile, "rw")) {
                 raf.setLength(64);
@@ -208,7 +210,6 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
                 Log.e("EVSHIM_HOST", "Failed to create mem file for player index "+i, e);
             }
         }
-        Context context = environment.getContext();
         ImageFs imageFs = ImageFs.find(context);
         File rootDir = imageFs.getRootDir();
 
@@ -312,6 +313,9 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
         envVars.put("LD_PRELOAD", ld_preload);
         envVars.put("EVSHIM_WINE", 1);
         envVars.put("EVSHIM_SHM_NAME", "controller-shm0");
+        // evshim falls back to a hardcoded app.gamenative path without this, which breaks
+        // gamepad input in builds using an applicationIdSuffix
+        envVars.put("EVSHIM_BASE_PATH", context.getFilesDir().getPath());
 
         // Check for specific shared memory libraries
 //        if ((new File(imageFs.getLibDir(), "libandroid-sysvshm.so")).exists()){
