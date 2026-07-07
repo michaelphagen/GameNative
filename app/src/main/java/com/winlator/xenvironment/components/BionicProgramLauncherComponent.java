@@ -196,13 +196,13 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
             String memName;
             if (i == 0) {
                 // Player 1 uses the original, non-numbered path that is known to work.
-                memName = "imagefs/tmp/gamepad.mem";
+                memName = "/files/imagefs/tmp/gamepad.mem";
             } else {
                 // Players 2, 3, 4 use a 1-based index.
-                memName = "imagefs/tmp/gamepad" + i + ".mem";
+                memName = "/files/imagefs/tmp/gamepad" + i + ".mem";
             }
 
-            File memFile = new File(context.getFilesDir(), memName);
+            File memFile = new File(Container.getPackageDataDir() + memName);
             memFile.getParentFile().mkdirs();
             try (RandomAccessFile raf = new RandomAccessFile(memFile, "rw")) {
                 raf.setLength(64);
@@ -315,7 +315,7 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
         envVars.put("EVSHIM_SHM_NAME", "controller-shm0");
         // evshim falls back to a hardcoded app.gamenative path without this, which breaks
         // gamepad input in builds using an applicationIdSuffix
-        envVars.put("EVSHIM_BASE_PATH", context.getFilesDir().getPath());
+        envVars.put("EVSHIM_BASE_PATH", Container.getPackageDataDir() + "/files");
 
         // Check for specific shared memory libraries
 //        if ((new File(imageFs.getLibDir(), "libandroid-sysvshm.so")).exists()){

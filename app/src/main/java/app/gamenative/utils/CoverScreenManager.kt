@@ -84,6 +84,7 @@ class CoverScreenManager(private val activity: Activity) {
                                 onButtonEvent?.invoke(binding, pressed)
                             }
                             session.setContentView(view)
+                            makeWindowNotFocusable(view)
                             setSessionActive(true)
                         } catch (e: Exception) {
                             Timber.e(e, "CoverScreenManager: failed to attach cover screen content")
@@ -110,6 +111,31 @@ class CoverScreenManager(private val activity: Activity) {
         } catch (e: Exception) {
             Timber.e(e, "CoverScreenManager: failed to present on cover screen")
             presenting = false
+        }
+    }
+
+    /**
+     * The presentation window is focusable by default and would steal input focus from the
+     * game activity, killing physical controller/keyboard input (dispatchKeyEvent only fires
+     * on the focused window). Non-focusable windows still receive touch on their own display.
+     * Mirrors GamePresentation's FLAG_NOT_FOCUSABLE setup for external displays.
+     */
+    private fun makeWindowNotFocusable(contentView: android.view.View) {
+        contentView.post {
+            try {
+                val root = contentView.rootView
+                val lp = root.layoutParams
+                if (lp is android.view.WindowManager.LayoutParams) {
+                    lp.flags = lp.flags or
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                    val wm = contentView.context.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
+                    wm.updateViewLayout(root, lp)
+                    Timber.i("CoverScreenManager: cover window set non-focusable")
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "CoverScreenManager: could not make cover window non-focusable")
+            }
         }
     }
 

@@ -451,9 +451,7 @@ fun XServerScreen(
     LaunchedEffect(coverScreenManager) {
         if (coverScreenManager != null && PrefManager.coverScreenShoulderButtons) {
             coverScreenManager.start(this) { binding, pressed ->
-                PluviaApp.inputControlsView?.let { icView ->
-                    if (icView.profile != null) icView.handleInputEvent(binding, pressed)
-                }
+                PluviaApp.inputControlsView?.handleExternalInputEvent(binding, pressed)
             }
         }
     }

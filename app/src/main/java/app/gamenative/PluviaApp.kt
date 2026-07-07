@@ -50,6 +50,16 @@ class PluviaApp : SplitCompatApplication() {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
+        // libevshim's constructor maps the gamepad shared memory when the library loads into
+        // this process (WinHandler's static init) and falls back to a hardcoded
+        // /data/data/app.gamenative path without this env var — which breaks all gamepad
+        // input in builds using an applicationIdSuffix. Must run before any native lib loads.
+        try {
+            android.system.Os.setenv("EVSHIM_BASE_PATH", "/data/data/$packageName/files", true)
+        } catch (e: Exception) {
+            android.util.Log.e("PluviaApp", "Failed to set EVSHIM_BASE_PATH", e)
+        }
+
         super.onCreate()
 
         preloadSystemLibraries()

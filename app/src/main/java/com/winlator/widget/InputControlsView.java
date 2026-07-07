@@ -976,6 +976,21 @@ public class InputControlsView extends View {
         return false;
     }
 
+    /**
+     * Handle a button event from an overlay outside this view's touch pipeline (e.g. the
+     * foldable cover screen) and commit the resulting gamepad state to the game, mirroring
+     * the commit normally done at the end of onTouchEvent().
+     */
+    public void handleExternalInputEvent(Binding binding, boolean isActionDown) {
+        if (profile == null) return;
+        handleInputEvent(binding, isActionDown);
+        WinHandler winHandler = xServer != null ? xServer.getWinHandler() : null;
+        if (winHandler != null) {
+            winHandler.sendGamepadState();
+            winHandler.sendVirtualGamepadState(profile.getGamepadState());
+        }
+    }
+
     public void handleInputEvent(Binding binding, boolean isActionDown) {
         handleInputEvent(binding, isActionDown, 0);
     }

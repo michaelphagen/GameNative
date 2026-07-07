@@ -67,6 +67,15 @@ public class Container {
         return packageDataDir + "/storage";
     }
 
+    /**
+     * App data dir in the historical "/data/data/&lt;pkg&gt;" form. Guest-side code (evshim,
+     * DXVK, wine) resolves paths in this form; prefer it over Context.getFilesDir(), which
+     * returns the "/data/user/0" alias.
+     */
+    public static String getPackageDataDir() {
+        return packageDataDir;
+    }
+
     private static String[] buildMediaConvEnvVars() {
         String home = packageDataDir + "/files/imagefs/home/xuser";
         return new String[]{
