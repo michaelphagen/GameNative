@@ -32,6 +32,7 @@ import com.winlator.inputcontrols.ControlsProfile;
 import com.winlator.inputcontrols.ExternalController;
 import com.winlator.inputcontrols.ExternalControllerBinding;
 import com.winlator.inputcontrols.GamepadState;
+import com.winlator.inputcontrols.GyroInput;
 import com.winlator.math.Mathf;
 import com.winlator.winhandler.MouseEventFlags;
 import com.winlator.winhandler.WinHandler;
@@ -458,6 +459,7 @@ public class InputControlsView extends View {
     protected void onDetachedFromWindow() {
         if (mouseMoveTimer != null)
             mouseMoveTimer.cancel();
+        deactivateGyroSensor();
         super.onDetachedFromWindow();
     }
 
@@ -1078,6 +1080,27 @@ public class InputControlsView extends View {
         return false;
     }
 
+    private GyroInput gyroInput;
+
+    /** Lazily created gyroscope wrapper shared by this view's touchpad elements. */
+    public GyroInput getGyroInput() {
+        if (gyroInput == null) gyroInput = new GyroInput(this);
+        return gyroInput;
+    }
+
+    /** Unregister the gyro hardware listener if it was ever started. */
+    public void deactivateGyroSensor() {
+        if (gyroInput != null) gyroInput.setActive(false);
+    }
+
+    /** GYRO binding pressed/released: hold gyro aiming on for the profile's touchpad elements. */
+    private synchronized void setGyroButtonActive(boolean active) {
+        if (profile == null) return;
+        for (ControlElement element : profile.getElements()) {
+            if (element.getType() == ControlElement.Type.TOUCHPAD) element.setGyroForced(active);
+        }
+    }
+
     /**
      * Send the profile's current gamepad state to the game. Called at the end of every touch
      * event and by the touchpad-as-joystick ticker, whose output changes between touch events.
@@ -1171,7 +1194,11 @@ public class InputControlsView extends View {
             }
         }
         else {
-            if (binding == Binding.SHOW_KEYBOARD) {
+            if (binding == Binding.GYRO) {
+                setGyroButtonActive(isActionDown);
+                return;
+            }
+            else if (binding == Binding.SHOW_KEYBOARD) {
                 if (isActionDown) {
                     if (!showKeyboardPressed) {
                         showKeyboardPressed = true;

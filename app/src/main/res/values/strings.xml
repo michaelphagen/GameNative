@@ -460,9 +460,13 @@
     <string name="touchpad_momentum">Flick Momentum</string>
     <string name="touchpad_momentum_subtitle">Camera keeps gliding after a flick, like a trackball; 0% stops instantly on lift</string>
     <string name="touchpad_acceleration">Acceleration</string>
-    <string name="touchpad_acceleration_subtitle">Makes slow swipes finer and fast swipes proportionally stronger</string>
+    <string name="touchpad_acceleration_subtitle">Positive: slow swipes finer, fast swipes stronger. Negative: small inputs boosted</string>
     <string name="touchpad_min_output">Precision Floor</string>
     <string name="touchpad_min_output_subtitle">Minimum stick output while moving, so tiny swipes get past the game\'s deadzone</string>
+    <string name="touchpad_gyro">Gyro While Touching</string>
+    <string name="touchpad_gyro_subtitle">Device gyroscope aims the stick whenever a finger is on this touchpad. Gyro can also be held/toggled by any button bound to GYRO</string>
+    <string name="touchpad_gyro_sensitivity">Gyro Sensitivity</string>
+    <string name="touchpad_gyro_sensitivity_subtitle">Device rotation to stick deflection multiplier</string>
     <string name="touchpad_screen_wide">Screen-Wide Touchpad</string>
     <string name="touchpad_screen_wide_subtitle">Swipes anywhere on screen (outside other controls) drive this touchpad; the pad itself is hidden during play</string>
 

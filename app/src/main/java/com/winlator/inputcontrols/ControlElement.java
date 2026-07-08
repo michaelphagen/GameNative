@@ -38,6 +38,8 @@ public class ControlElement {
     public static final float TOUCHPAD_FRICTION_MAX = 0.98f;
     // Glide ends when output magnitude falls below this
     public static final float TOUCHPAD_GLIDE_STOP_THRESHOLD = 0.02f;
+    // Gyro aiming: device angular velocity (rad/s) for full stick deflection at 1.0x sensitivity
+    public static final float GYRO_FULL_DEFLECTION_RATE = 2.0f;
     public enum Type {
         BUTTON, D_PAD, RANGE_BUTTON, STICK, TRACKPAD, SHOOTER_MODE, TOUCHPAD;
 
@@ -104,6 +106,9 @@ public class ControlElement {
     private float touchpadMomentum = 0.5f;
     private float touchpadAcceleration = 0f;
     private float touchpadMinOutput = 0f;
+    private boolean touchpadGyro = false;
+    private float touchpadGyroSensitivity = 1.0f;
+    private boolean gyroForced = false; // runtime: gyro held on via the GYRO binding
     private float touchpadAccumX, touchpadAccumY;
     private float touchpadOutX, touchpadOutY;
     private boolean touchpadPointerDown = false;
@@ -146,6 +151,8 @@ public class ControlElement {
             touchpadMomentum = 0.5f;
             touchpadAcceleration = 0f;
             touchpadMinOutput = 0f;
+            touchpadGyro = false;
+            touchpadGyroSensitivity = 1.0f;
         }
         else if (type == Type.RANGE_BUTTON) {
             scroller = new RangeScroller(inputControlsView, this);
@@ -315,7 +322,7 @@ public class ControlElement {
     }
 
     public void setTouchpadAcceleration(float touchpadAcceleration) {
-        this.touchpadAcceleration = Mathf.clamp(touchpadAcceleration, 0, 1);
+        this.touchpadAcceleration = Mathf.clamp(touchpadAcceleration, -1, 1);
     }
 
     public float getTouchpadMinOutput() {
@@ -324,6 +331,33 @@ public class ControlElement {
 
     public void setTouchpadMinOutput(float touchpadMinOutput) {
         this.touchpadMinOutput = Mathf.clamp(touchpadMinOutput, 0, 0.5f);
+    }
+
+    public boolean isTouchpadGyro() {
+        return touchpadGyro;
+    }
+
+    public void setTouchpadGyro(boolean touchpadGyro) {
+        this.touchpadGyro = touchpadGyro;
+    }
+
+    public float getTouchpadGyroSensitivity() {
+        return touchpadGyroSensitivity;
+    }
+
+    public void setTouchpadGyroSensitivity(float touchpadGyroSensitivity) {
+        this.touchpadGyroSensitivity = touchpadGyroSensitivity;
+    }
+
+    /** Hold gyro on via the GYRO binding (momentary press or toggle button). */
+    public void setGyroForced(boolean forced) {
+        if (type != Type.TOUCHPAD) return;
+        gyroForced = forced;
+        if (forced) startTouchpadTicker();
+    }
+
+    private boolean isGyroActive() {
+        return gyroForced || (touchpadGyro && touchpadPointerDown);
     }
 
     public float getScale() {
@@ -781,6 +815,8 @@ public class ControlElement {
                 elementJSONObject.put("touchpadMomentum", (double) touchpadMomentum);
                 elementJSONObject.put("touchpadAcceleration", (double) touchpadAcceleration);
                 elementJSONObject.put("touchpadMinOutput", (double) touchpadMinOutput);
+                if (touchpadGyro) elementJSONObject.put("touchpadGyro", true);
+                elementJSONObject.put("touchpadGyroSensitivity", (double) touchpadGyroSensitivity);
             }
 
             return elementJSONObject;
@@ -1047,7 +1083,10 @@ public class ControlElement {
     }
 
     private void tickTouchpad() {
-        if (!inputControlsView.isAttachedToWindow()) {
+        // Stop if the view went away or the profile changed out from under us (e.g. gyro
+        // toggle left on across a profile switch) so an orphaned element can't inject input
+        ControlsProfile profile = inputControlsView.getProfile();
+        if (!inputControlsView.isAttachedToWindow() || profile == null || !profile.getElements().contains(this)) {
             stopTouchpadEmulation();
             return;
         }
@@ -1081,13 +1120,27 @@ public class ControlElement {
             if (targetY == 0 && Math.abs(touchpadOutY) < 0.02f) touchpadOutY = 0;
         }
 
-        if (!touchpadPointerDown && touchpadOutX == 0 && touchpadOutY == 0) {
+        boolean gyroActive = isGyroActive();
+        GyroInput gyro = inputControlsView.getGyroInput();
+        gyro.setActive(gyroActive);
+
+        if (!touchpadPointerDown && !gyroForced && touchpadOutX == 0 && touchpadOutY == 0) {
             stopTouchpadEmulation();
             return;
         }
 
         float sendX = touchpadOutX;
         float sendY = touchpadOutY;
+
+        // Gyro aiming adds on top of touch output: turning the device left/right yaws the
+        // stick, tilting the top away/toward pitches it
+        if (gyroActive && gyro.isActive()) {
+            float scale = touchpadGyroSensitivity / GYRO_FULL_DEFLECTION_RATE;
+            sendX += -gyro.getYawRate() * scale;
+            sendY += -gyro.getPitchRate() * scale;
+            sendX = Mathf.clamp(sendX, -1, 1);
+            sendY = Mathf.clamp(sendY, -1, 1);
+        }
         // Anti-deadzone: while the finger is actively moving, keep the output magnitude above
         // the floor so slow precise swipes still get past the game's own stick deadzone.
         // Not applied to decay/glide so the stick can settle back to center.
@@ -1113,9 +1166,15 @@ public class ControlElement {
         if (interpolator == null) interpolator = new CubicBezierInterpolator();
         interpolator.set(0.075f, 0.95f, 0.45f, 0.95f);
         float shaped = interpolator.getInterpolation(norm);
-        // Acceleration: raise the curve to a power so slow swipes get finer and fast swipes
-        // proportionally stronger; 0 leaves the base curve untouched
-        if (touchpadAcceleration > 0) shaped = (float) Math.pow(shaped, 1 + touchpadAcceleration * 2);
+        // Acceleration: raise the curve to a power. Positive -> exponent > 1: slow swipes get
+        // finer, fast swipes proportionally stronger. Negative -> exponent < 1 (down to 1/3):
+        // small inputs are boosted. 0 leaves the base curve untouched.
+        if (touchpadAcceleration > 0) {
+            shaped = (float) Math.pow(shaped, 1 + touchpadAcceleration * 2);
+        }
+        else if (touchpadAcceleration < 0) {
+            shaped = (float) Math.pow(shaped, 1 / (1 - touchpadAcceleration * 2));
+        }
         return Mathf.clamp(shaped * Mathf.sign(delta), -1, 1);
     }
 
@@ -1137,6 +1196,7 @@ public class ControlElement {
         boolean wasActive = touchpadTickerRunning || touchpadOutX != 0 || touchpadOutY != 0;
         touchpadTickerRunning = false;
         touchpadPointerDown = false;
+        inputControlsView.deactivateGyroSensor();
         touchpadAccumX = 0;
         touchpadAccumY = 0;
         touchpadOutX = 0;
