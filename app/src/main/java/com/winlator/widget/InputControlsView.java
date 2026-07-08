@@ -176,7 +176,109 @@ public class InputControlsView extends View {
             drawContainerShooterToggle(canvas);
         }
 
+        // Foldable unified editing: this screen is locked (edit focus is on the other display)
+        if (editMode && editLocked) {
+            drawEditLock(canvas);
+        }
+
         super.onDraw(canvas);
+    }
+
+    // ---- Unified cross-screen editing: per-view lock with swipe-to-unlock ----
+    private boolean editLocked = false;
+    private Runnable onUnlock;
+    private String editLockMessage = "Editing the other screen";
+    private String editLockHint = "swipe to edit here";
+    private final android.graphics.RectF unlockTrack = new android.graphics.RectF();
+    private float unlockKnobX = 0f;
+    private float unlockKnobRadius = 0f;
+    private boolean unlockDragging = false;
+    private boolean unlockFired = false;
+
+    /** Lock this view for editing (blocks drags, shows swipe-to-unlock). Works on inner + cover. */
+    public void setEditLocked(boolean locked) {
+        if (editLocked == locked) return;
+        editLocked = locked;
+        unlockKnobX = 0f;
+        unlockFired = false;
+        unlockDragging = false;
+        invalidate();
+    }
+
+    public boolean isEditLocked() {
+        return editLocked;
+    }
+
+    public void setEditLockLabels(String message, String hint) {
+        if (message != null) editLockMessage = message;
+        if (hint != null) editLockHint = hint;
+    }
+
+    /** Called when the user completes the swipe-to-unlock gesture on this (locked) view. */
+    public void setOnUnlockListener(Runnable listener) {
+        this.onUnlock = listener;
+    }
+
+    private void drawEditLock(Canvas canvas) {
+        int w = getWidth();
+        int h = getHeight();
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(0xB0000000);
+        canvas.drawRect(0, 0, w, h, p);
+
+        float trackWidth = w * 0.5f;
+        float trackHeight = Math.min(w, h) * 0.08f;
+        unlockKnobRadius = trackHeight * 0.45f;
+        float left = (w - trackWidth) / 2f;
+        float top = h * 0.62f;
+        unlockTrack.set(left, top, left + trackWidth, top + trackHeight);
+        if (unlockKnobX <= 0f) unlockKnobX = unlockTrack.left + unlockKnobRadius + trackHeight * 0.1f;
+
+        p.setColor(0xFFFFFFFF);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(h * 0.11f);
+        canvas.drawText("🔒", w / 2f, h * 0.44f, p); // 🔒
+        p.setTextSize(h * 0.045f);
+        canvas.drawText(editLockMessage, w / 2f, h * 0.54f, p);
+
+        float r = unlockTrack.height() / 2f;
+        p.setColor(0x40FFFFFF);
+        canvas.drawRoundRect(unlockTrack, r, r, p);
+        p.setColor(0x99FFFFFF);
+        p.setTextSize(unlockTrack.height() * 0.4f);
+        canvas.drawText(editLockHint, unlockTrack.centerX(), unlockTrack.centerY() + p.getTextSize() * 0.35f, p);
+        p.setColor(0xFFFFFFFF);
+        canvas.drawCircle(unlockKnobX, unlockTrack.centerY(), unlockKnobRadius, p);
+    }
+
+    private boolean handleUnlockTouch(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                unlockDragging = Math.abs(event.getX() - unlockKnobX) < unlockKnobRadius * 3f &&
+                        Math.abs(event.getY() - unlockTrack.centerY()) < unlockTrack.height() * 1.5f;
+                unlockFired = false;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                if (unlockDragging) {
+                    unlockKnobX = Math.max(unlockTrack.left + unlockKnobRadius,
+                            Math.min(event.getX(), unlockTrack.right - unlockKnobRadius));
+                    if (!unlockFired && unlockKnobX >= unlockTrack.right - unlockKnobRadius * 1.3f) {
+                        unlockFired = true;
+                        if (onUnlock != null) onUnlock.run();
+                    }
+                    invalidate();
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                unlockDragging = false;
+                if (!unlockFired) {
+                    unlockKnobX = unlockTrack.left + unlockKnobRadius + unlockTrack.height() * 0.1f;
+                    invalidate();
+                }
+                break;
+        }
+        return true;
     }
 
     private void drawGrid(Canvas canvas) {
@@ -827,6 +929,10 @@ public class InputControlsView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        // When locked for unified cross-screen editing, only the swipe-to-unlock is interactive
+        if (editMode && editLocked) {
+            return handleUnlockTouch(event);
+        }
         if (editMode && readyToDraw) {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN: {

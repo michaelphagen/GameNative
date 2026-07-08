@@ -257,7 +257,6 @@ fun QuickMenu(
     onFpsLimiterEnabledChanged: (Boolean) -> Unit = {},
     onFpsLimiterChanged: (Int) -> Unit = {},
     hasPhysicalController: Boolean = false,
-    showEditCoverControls: Boolean = false,
     showGameAreaOption: Boolean = false,
     isTouchscreenModeActive: Boolean = false,
     onTouchGestureSettingsClick: () -> Unit = {},
@@ -323,16 +322,6 @@ fun QuickMenu(
                 accentColor = PluviaTheme.colors.accentPurple,
             )
         )
-        if (showEditCoverControls) {
-            add(
-                QuickMenuItem(
-                    id = QuickMenuAction.EDIT_COVER_CONTROLS,
-                    icon = Icons.Default.Edit,
-                    labelResId = R.string.edit_cover_controls,
-                    accentColor = PluviaTheme.colors.accentPurple,
-                )
-            )
-        }
         if (showGameAreaOption) {
             add(
                 QuickMenuItem(
