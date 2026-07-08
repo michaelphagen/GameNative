@@ -1,6 +1,8 @@
 package app.gamenative.utils
 
 import android.app.Activity
+import android.content.Context
+import android.view.View
 import androidx.core.content.ContextCompat
 import androidx.window.area.WindowAreaController
 import androidx.window.area.WindowAreaInfo
@@ -11,8 +13,6 @@ import androidx.window.core.ExperimentalWindowApi
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import app.gamenative.PluviaApp
-import app.gamenative.externaldisplay.CoverScreenShoulderView
-import com.winlator.inputcontrols.Binding
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -21,12 +21,12 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
- * Presents shoulder buttons on the rear/cover display of a foldable while a game runs on the
+ * Presents controls on the rear/cover display of a foldable while a game runs on the
  * inner display, using the Jetpack WindowArea rear-display presentation ("dual screen") mode.
  * On devices without a rear display (or without vendor support) this is a no-op.
  *
  * Lifecycle: the caller starts this only while the activity is RESUMED and stops it when the
- * activity pauses (folding/unfolding recreates the activity, so sessions must not outlive a
+ * activity pauses (folding transitions cycle the lifecycle, so sessions must not outlive a
  * resumed state). Within a resumed period, the window-area status drives the state machine —
  * vendor extensions don't reliably deliver onSessionEnded when the device folds, so callbacks
  * alone can't be trusted.
@@ -37,18 +37,18 @@ class CoverScreenManager(private val activity: Activity) {
     private var session: WindowAreaSessionPresenter? = null
     private var presenting = false
     private var watchJob: Job? = null
-    private var onButtonEvent: ((Binding, Boolean) -> Unit)? = null
+    private var contentFactory: ((Context) -> View)? = null
 
     // Identity of the most recent present() request; stale session callbacks (from a request
     // that was superseded or cleaned up) are ignored so they can't clobber current state.
     private var currentCallback: WindowAreaPresentationSessionCallback? = null
 
     /**
-     * Watches for a rear-facing window area and presents the shoulder buttons on it whenever
-     * it becomes available (e.g. each time the device is unfolded). Safe to call on any device.
+     * Watches for a rear-facing window area and presents [contentFactory]'s view on it whenever
+     * it becomes available while the device is unfolded. Safe to call on any device.
      */
-    fun start(scope: CoroutineScope, onButtonEvent: (binding: Binding, pressed: Boolean) -> Unit) {
-        this.onButtonEvent = onButtonEvent
+    fun start(scope: CoroutineScope, contentFactory: (Context) -> View) {
+        this.contentFactory = contentFactory
         watchJob?.cancel()
         watchJob = scope.launch {
             try {
@@ -101,8 +101,21 @@ class CoverScreenManager(private val activity: Activity) {
     fun stop() {
         watchJob?.cancel()
         watchJob = null
-        onButtonEvent = null
+        contentFactory = null
         closeSession()
+    }
+
+    /** Rebuild and re-attach the cover content (e.g. after the cover layout was edited). */
+    fun refreshContent() {
+        val liveSession = session ?: return
+        val factory = contentFactory ?: return
+        try {
+            val view = factory(liveSession.context)
+            liveSession.setContentView(view)
+            makeWindowNotFocusable(view)
+        } catch (e: Exception) {
+            Timber.e(e, "CoverScreenManager: failed to refresh cover screen content")
+        }
     }
 
     private fun closeSession() {
@@ -133,9 +146,8 @@ class CoverScreenManager(private val activity: Activity) {
                 this@CoverScreenManager.session = session
                 presenting = false
                 try {
-                    val view = CoverScreenShoulderView(session.context) { binding, pressed ->
-                        onButtonEvent?.invoke(binding, pressed)
-                    }
+                    val factory = contentFactory ?: throw IllegalStateException("no content factory")
+                    val view = factory(session.context)
                     session.setContentView(view)
                     makeWindowNotFocusable(view)
                     setSessionActive(true)
@@ -183,7 +195,7 @@ class CoverScreenManager(private val activity: Activity) {
      * on the focused window). Non-focusable windows still receive touch on their own display.
      * Mirrors GamePresentation's FLAG_NOT_FOCUSABLE setup for external displays.
      */
-    private fun makeWindowNotFocusable(contentView: android.view.View) {
+    private fun makeWindowNotFocusable(contentView: View) {
         contentView.post {
             try {
                 val root = contentView.rootView
@@ -192,7 +204,7 @@ class CoverScreenManager(private val activity: Activity) {
                     lp.flags = lp.flags or
                         android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                    val wm = contentView.context.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
+                    val wm = contentView.context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
                     wm.updateViewLayout(root, lp)
                     Timber.i("CoverScreenManager: cover window set non-focusable")
                 }
@@ -213,7 +225,7 @@ class CoverScreenManager(private val activity: Activity) {
         @Volatile
         private var sessionActive = false
 
-        /** Whether shoulder buttons are currently shown on the cover screen. */
+        /** Whether controls are currently shown on the cover screen. */
         @JvmStatic
         fun isSessionActive(): Boolean = sessionActive
     }

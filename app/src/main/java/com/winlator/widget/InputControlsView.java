@@ -412,9 +412,16 @@ public class InputControlsView extends View {
         if (showKeyboardCallback != null) showKeyboardCallback.run();
     }
 
+    /** True when this view IS the foldable cover screen overlay (never hides its own buttons). */
+    private boolean isCoverScreenView = false;
+
+    public void setCoverScreenView(boolean isCoverScreenView) {
+        this.isCoverScreenView = isCoverScreenView;
+    }
+
     /** Check if a shoulder/stick-click BUTTON element is replaced by the foldable cover screen overlay. */
     private boolean isHiddenByCoverScreen(ControlElement element) {
-        if (editMode || !app.gamenative.utils.CoverScreenManager.isSessionActive()) return false;
+        if (isCoverScreenView || editMode || !app.gamenative.utils.CoverScreenManager.isSessionActive()) return false;
         if (element.getType() != ControlElement.Type.BUTTON) return false;
         Binding binding = element.getBindingAt(0);
         return binding == Binding.GAMEPAD_BUTTON_L1 || binding == Binding.GAMEPAD_BUTTON_R1 ||
@@ -877,22 +884,27 @@ public class InputControlsView extends View {
                         break;
                     }
 
-                    touchpadView.setPointerButtonLeftEnabled(true);
-                    touchpadView.setPointerButtonRightEnabled(true);
+                    // touchpadView is null when this view lives on the foldable cover screen
+                    if (touchpadView != null) {
+                        touchpadView.setPointerButtonLeftEnabled(true);
+                        touchpadView.setPointerButtonRightEnabled(true);
+                    }
                     for (ControlElement element : profile.getElements()) {
                         if (isHiddenByCoverScreen(element)) continue;
                         if (element.handleTouchDown(pointerId, x, y)) {
                             performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
                             handled = true;
                         }
-                        if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
-                            touchpadView.setPointerButtonLeftEnabled(false);
-                        }
-                        if (element.getBindingAt(0) == Binding.MOUSE_RIGHT_BUTTON) {
-                            touchpadView.setPointerButtonRightEnabled(false);
+                        if (touchpadView != null) {
+                            if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
+                                touchpadView.setPointerButtonLeftEnabled(false);
+                            }
+                            if (element.getBindingAt(0) == Binding.MOUSE_RIGHT_BUTTON) {
+                                touchpadView.setPointerButtonRightEnabled(false);
+                            }
                         }
                     }
-                    if (!handled) touchpadView.onTouchEvent(event);
+                    if (!handled && touchpadView != null) touchpadView.onTouchEvent(event);
                     break;
                 }
                 case MotionEvent.ACTION_MOVE: {
@@ -917,7 +929,7 @@ public class InputControlsView extends View {
                         for (ControlElement element : profile.getElements()) {
                             if (element.handleTouchMove(pid, x, y)) handled = true;
                         }
-                        if (!handled) touchpadView.onTouchEvent(event);
+                        if (!handled && touchpadView != null) touchpadView.onTouchEvent(event);
                     }
                     break;
                 }
@@ -941,7 +953,7 @@ public class InputControlsView extends View {
                         }
                     }
                     for (ControlElement element : profile.getElements()) if (element.handleTouchUp(pointerId)) handled = true;
-                    if (!handled) touchpadView.onTouchEvent(event);
+                    if (!handled && touchpadView != null) touchpadView.onTouchEvent(event);
                     break;
             }
 

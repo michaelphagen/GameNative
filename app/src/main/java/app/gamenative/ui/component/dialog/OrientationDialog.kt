@@ -34,20 +34,42 @@ fun OrientationDialog(
         return
     }
 
+    val context = LocalContext.current
+    val isFoldable = remember {
+        context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_SENSOR_HINGE_ANGLE)
+    }
+
     var currentSettings by remember {
         mutableStateOf(PrefManager.allowedOrientation.toList())
+    }
+    var foldedSettings by remember {
+        mutableStateOf(PrefManager.allowedOrientationFolded.toList())
+    }
+    var unfoldedSettings by remember {
+        mutableStateOf(PrefManager.allowedOrientationUnfolded.toList())
+    }
+
+    val isValid = if (isFoldable) {
+        foldedSettings.isNotEmpty() && unfoldedSettings.isNotEmpty()
+    } else {
+        currentSettings.isNotEmpty()
     }
 
     // Save on close.
     val onClose: () -> Unit = {
-        PrefManager.allowedOrientation = EnumSet.copyOf(currentSettings)
+        if (isFoldable) {
+            PrefManager.allowedOrientationFolded = EnumSet.copyOf(foldedSettings)
+            PrefManager.allowedOrientationUnfolded = EnumSet.copyOf(unfoldedSettings)
+        } else {
+            PrefManager.allowedOrientation = EnumSet.copyOf(currentSettings)
+        }
         onDismiss()
     }
 
     AlertDialog(
         onDismissRequest = {
             // Block dismissal unless there is one valid setting checked.
-            if (currentSettings.isNotEmpty()) {
+            if (isValid) {
                 onClose()
             }
         },
@@ -62,29 +84,49 @@ fun OrientationDialog(
         },
         text = {
             Column {
-                arrayOf(Orientation.LANDSCAPE, Orientation.REVERSE_LANDSCAPE).forEach { orientation ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = currentSettings.contains(orientation),
-                            onCheckedChange = { enable ->
-                                currentSettings = if (enable) {
-                                    currentSettings + orientation
-                                } else {
-                                    currentSettings - orientation
-                                }
-                            },
-                        )
-                        Text(text = orientation.name)
-                    }
+                if (isFoldable) {
+                    Text(text = stringResource(R.string.allowed_orientations_folded))
+                    OrientationChecklist(
+                        settings = foldedSettings,
+                        onChanged = { foldedSettings = it },
+                    )
+                    Text(text = stringResource(R.string.allowed_orientations_unfolded))
+                    OrientationChecklist(
+                        settings = unfoldedSettings,
+                        onChanged = { unfoldedSettings = it },
+                    )
+                } else {
+                    OrientationChecklist(
+                        settings = currentSettings,
+                        onChanged = { currentSettings = it },
+                    )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onClose, enabled = currentSettings.isNotEmpty()) {
+            TextButton(onClick = onClose, enabled = isValid) {
                 Text(text = stringResource(R.string.close))
             }
         },
     )
+}
+
+@Composable
+private fun OrientationChecklist(
+    settings: List<Orientation>,
+    onChanged: (List<Orientation>) -> Unit,
+) {
+    arrayOf(Orientation.LANDSCAPE, Orientation.REVERSE_LANDSCAPE).forEach { orientation ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = settings.contains(orientation),
+                onCheckedChange = { enable ->
+                    onChanged(if (enable) settings + orientation else settings - orientation)
+                },
+            )
+            Text(text = orientation.name)
+        }
+    }
 }
 
 @Preview(uiMode = Configuration.UI_MODE_NIGHT_YES or Configuration.UI_MODE_TYPE_NORMAL)

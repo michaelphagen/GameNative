@@ -65,6 +65,15 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
         return gamepadState;
     }
 
+    /**
+     * Share another profile's gamepad state so two views (e.g. the on-screen overlay and the
+     * foldable cover screen) merge their input instead of overwriting each other's full state
+     * when committing to the game.
+     */
+    public void setSharedGamepadState(GamepadState state) {
+        if (state != null) gamepadState = state;
+    }
+
     public ExternalController addController(String id) {
         ExternalController controller = getController(id);
         if (controller == null) {

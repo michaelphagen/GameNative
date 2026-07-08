@@ -109,6 +109,7 @@ object QuickMenuAction {
     const val PERFORMANCE_HUD = 6
     const val TOUCHSCREEN_MODE = 7
     const val DISABLE_MOUSE = 8
+    const val EDIT_COVER_CONTROLS = 9
 }
 
 private object QuickMenuTab {
@@ -254,6 +255,7 @@ fun QuickMenu(
     onFpsLimiterEnabledChanged: (Boolean) -> Unit = {},
     onFpsLimiterChanged: (Int) -> Unit = {},
     hasPhysicalController: Boolean = false,
+    showEditCoverControls: Boolean = false,
     isTouchscreenModeActive: Boolean = false,
     onTouchGestureSettingsClick: () -> Unit = {},
     activeToggleIds: Set<Int> = emptySet(),
@@ -318,6 +320,16 @@ fun QuickMenu(
                 accentColor = PluviaTheme.colors.accentPurple,
             )
         )
+        if (showEditCoverControls) {
+            add(
+                QuickMenuItem(
+                    id = QuickMenuAction.EDIT_COVER_CONTROLS,
+                    icon = Icons.Default.Edit,
+                    labelResId = R.string.edit_cover_controls,
+                    accentColor = PluviaTheme.colors.accentPurple,
+                )
+            )
+        }
         add(
             QuickMenuItem(
                 id = QuickMenuAction.TOUCHSCREEN_MODE,

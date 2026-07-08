@@ -937,6 +937,27 @@ object PrefManager {
             setPref(ALLOWED_ORIENTATION, Orientation.toInt(value))
         }
 
+    // Foldables: per-fold-state orientation locks. Unset (-1) falls back to allowedOrientation.
+    private val ALLOWED_ORIENTATION_FOLDED = intPreferencesKey("allowed_orientation_folded")
+    var allowedOrientationFolded: EnumSet<Orientation>
+        get() {
+            val value = getPref(ALLOWED_ORIENTATION_FOLDED, -1)
+            return if (value == -1) allowedOrientation else Orientation.fromInt(value)
+        }
+        set(value) {
+            setPref(ALLOWED_ORIENTATION_FOLDED, Orientation.toInt(value))
+        }
+
+    private val ALLOWED_ORIENTATION_UNFOLDED = intPreferencesKey("allowed_orientation_unfolded")
+    var allowedOrientationUnfolded: EnumSet<Orientation>
+        get() {
+            val value = getPref(ALLOWED_ORIENTATION_UNFOLDED, -1)
+            return if (value == -1) allowedOrientation else Orientation.fromInt(value)
+        }
+        set(value) {
+            setPref(ALLOWED_ORIENTATION_UNFOLDED, Orientation.toInt(value))
+        }
+
     private val TIPPED = booleanPreferencesKey("tipped")
     var tipped: Boolean
         get() {

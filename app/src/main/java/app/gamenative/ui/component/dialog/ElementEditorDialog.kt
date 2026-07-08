@@ -913,6 +913,10 @@ private fun SizeAdjusterOverlay(
     onCancel: () -> Unit,
     onReset: () -> Unit
 ) {
+    // Dialogs must use the composition's (activity) context: view.context may belong to a
+    // presentation window (foldable cover screen) that cannot host application dialogs
+    val dialogContext = LocalContext.current
+
     // Determine if element is in top or bottom half of screen
     // Coordinates are in actual screen pixels (not normalized)
     // Y=0 is at TOP, Y increases downward (standard Android Canvas)
@@ -978,8 +982,7 @@ private fun SizeAdjusterOverlay(
                     // Copy Size button
                     OutlinedButton(
                         onClick = {
-                            val context = view.context
-                            showCopySizeDialog(context, element, view) { newScale ->
+                            showCopySizeDialog(dialogContext, element, view) { newScale ->
                                 onScaleChange(newScale)
                             }
                         },
