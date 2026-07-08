@@ -79,6 +79,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import app.gamenative.PluviaApp
 import app.gamenative.PrefManager
 import app.gamenative.SteamBootstrap
@@ -190,6 +191,7 @@ import com.winlator.xserver.XServer
 import com.winlator.xserver.extensions.PresentExtension
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -450,8 +452,19 @@ fun XServerScreen(
     val coverScreenManager = remember(activity) { activity?.let { CoverScreenManager(it) } }
     LaunchedEffect(coverScreenManager) {
         if (coverScreenManager != null && PrefManager.coverScreenShoulderButtons) {
-            coverScreenManager.start(this) { binding, pressed ->
-                PluviaApp.inputControlsView?.handleExternalInputEvent(binding, pressed)
+            // Folding/unfolding recreates the activity (configChanges doesn't cover
+            // smallestScreenSize/screenLayout) and suspends the game in between. Scope the
+            // cover session strictly to the RESUMED state so it is torn down before every
+            // fold transition and freshly re-presented once the activity settles.
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                try {
+                    coverScreenManager.start(this) { binding, pressed ->
+                        PluviaApp.inputControlsView?.handleExternalInputEvent(binding, pressed)
+                    }
+                    awaitCancellation()
+                } finally {
+                    coverScreenManager.stop()
+                }
             }
         }
     }

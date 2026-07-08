@@ -8,11 +8,15 @@ import androidx.window.area.WindowAreaCapability
 import androidx.window.area.WindowAreaPresentationSessionCallback
 import androidx.window.area.WindowAreaSessionPresenter
 import androidx.window.core.ExperimentalWindowApi
+import androidx.window.layout.FoldingFeature
+import androidx.window.layout.WindowInfoTracker
 import app.gamenative.PluviaApp
 import app.gamenative.externaldisplay.CoverScreenShoulderView
 import com.winlator.inputcontrols.Binding
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -20,6 +24,12 @@ import timber.log.Timber
  * Presents shoulder buttons on the rear/cover display of a foldable while a game runs on the
  * inner display, using the Jetpack WindowArea rear-display presentation ("dual screen") mode.
  * On devices without a rear display (or without vendor support) this is a no-op.
+ *
+ * Lifecycle: the caller starts this only while the activity is RESUMED and stops it when the
+ * activity pauses (folding/unfolding recreates the activity, so sessions must not outlive a
+ * resumed state). Within a resumed period, the window-area status drives the state machine —
+ * vendor extensions don't reliably deliver onSessionEnded when the device folds, so callbacks
+ * alone can't be trusted.
  */
 @OptIn(ExperimentalWindowApi::class)
 class CoverScreenManager(private val activity: Activity) {
@@ -28,6 +38,10 @@ class CoverScreenManager(private val activity: Activity) {
     private var presenting = false
     private var watchJob: Job? = null
     private var onButtonEvent: ((Binding, Boolean) -> Unit)? = null
+
+    // Identity of the most recent present() request; stale session callbacks (from a request
+    // that was superseded or cleaned up) are ignored so they can't clobber current state.
+    private var currentCallback: WindowAreaPresentationSessionCallback? = null
 
     /**
      * Watches for a rear-facing window area and presents the shoulder buttons on it whenever
@@ -38,16 +52,46 @@ class CoverScreenManager(private val activity: Activity) {
         watchJob?.cancel()
         watchJob = scope.launch {
             try {
-                WindowAreaController.getOrCreate().windowAreaInfos.collect { infos ->
-                    val rearArea = infos.firstOrNull { info ->
-                        info.type == WindowAreaInfo.Type.TYPE_REAR_FACING &&
-                            info.getCapability(WindowAreaCapability.Operation.OPERATION_PRESENT_ON_AREA)
-                                ?.status == WindowAreaCapability.Status.WINDOW_AREA_STATUS_AVAILABLE
-                    }
-                    if (rearArea != null && session == null && !presenting) {
-                        present(rearArea)
+                val areaFlow = WindowAreaController.getOrCreate().windowAreaInfos
+                // FoldingFeature is only reported while the app is on the hinge-spanning inner
+                // display, i.e. the device is unfolded. While folded, the "rear-facing" area is
+                // the INNER display — presenting onto it would fight the fold transition.
+                val layoutFlow = WindowInfoTracker.getOrCreate(activity).windowLayoutInfo(activity)
+                combine(areaFlow, layoutFlow) { infos, layout ->
+                    val rearArea = infos.firstOrNull { it.type == WindowAreaInfo.Type.TYPE_REAR_FACING }
+                    val unfolded = layout.displayFeatures.any { it is FoldingFeature }
+                    Pair(rearArea, unfolded)
+                }.collect { (rearArea, unfolded) ->
+                    val status = rearArea?.getCapability(WindowAreaCapability.Operation.OPERATION_PRESENT_ON_AREA)?.status
+                    when {
+                        !unfolded -> {
+                            if (session != null || presenting) {
+                                Timber.i("CoverScreenManager: device folded, closing session")
+                                closeSession()
+                            }
+                        }
+                        status == WindowAreaCapability.Status.WINDOW_AREA_STATUS_AVAILABLE -> {
+                            if (session != null) {
+                                // AVAILABLE while we think a session is live: the fold ended the
+                                // session without a callback. Reset and re-present.
+                                Timber.w("CoverScreenManager: stale session detected, re-presenting")
+                                closeSession()
+                            }
+                            if (session == null && !presenting) present(rearArea)
+                        }
+                        status != WindowAreaCapability.Status.WINDOW_AREA_STATUS_ACTIVE -> {
+                            // Unavailable/unsupported: drop any session or in-flight request so
+                            // on-screen buttons return and we can retry later.
+                            if (session != null || presenting) {
+                                Timber.i("CoverScreenManager: window area no longer available (status=$status), closing session")
+                                closeSession()
+                            }
+                        }
+                        // ACTIVE with our live session: steady state, nothing to do.
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "CoverScreenManager: failed to observe window areas")
             }
@@ -58,6 +102,11 @@ class CoverScreenManager(private val activity: Activity) {
         watchJob?.cancel()
         watchJob = null
         onButtonEvent = null
+        closeSession()
+    }
+
+    private fun closeSession() {
+        currentCallback = null // orphan any in-flight callback
         try {
             session?.close()
         } catch (e: Exception) {
@@ -70,46 +119,60 @@ class CoverScreenManager(private val activity: Activity) {
 
     private fun present(areaInfo: WindowAreaInfo) {
         presenting = true
+        val callback = object : WindowAreaPresentationSessionCallback {
+            override fun onSessionStarted(session: WindowAreaSessionPresenter) {
+                if (currentCallback !== this) {
+                    Timber.i("CoverScreenManager: ignoring stale session start")
+                    try {
+                        session.close()
+                    } catch (_: Exception) {
+                    }
+                    return
+                }
+                Timber.i("CoverScreenManager: cover screen session started")
+                this@CoverScreenManager.session = session
+                presenting = false
+                try {
+                    val view = CoverScreenShoulderView(session.context) { binding, pressed ->
+                        onButtonEvent?.invoke(binding, pressed)
+                    }
+                    session.setContentView(view)
+                    makeWindowNotFocusable(view)
+                    setSessionActive(true)
+                } catch (e: Exception) {
+                    Timber.e(e, "CoverScreenManager: failed to attach cover screen content")
+                    closeSession()
+                }
+            }
+
+            override fun onSessionEnded(t: Throwable?) {
+                if (currentCallback !== this) return
+                if (t != null) Timber.w(t, "CoverScreenManager: cover screen session ended with error")
+                else Timber.i("CoverScreenManager: cover screen session ended")
+                currentCallback = null
+                session = null
+                presenting = false
+                setSessionActive(false)
+            }
+
+            override fun onContainerVisibilityChanged(isVisible: Boolean) {
+                if (currentCallback !== this) return
+                Timber.d("CoverScreenManager: cover screen visibility changed: $isVisible")
+                // While the cover content is hidden (e.g. mid-fold), restore on-screen buttons
+                setSessionActive(isVisible && session != null)
+            }
+        }
+        currentCallback = callback
         try {
             WindowAreaController.getOrCreate().presentContentOnWindowArea(
                 areaInfo.token,
                 activity,
                 ContextCompat.getMainExecutor(activity),
-                object : WindowAreaPresentationSessionCallback {
-                    override fun onSessionStarted(session: WindowAreaSessionPresenter) {
-                        Timber.i("CoverScreenManager: cover screen session started")
-                        this@CoverScreenManager.session = session
-                        try {
-                            val view = CoverScreenShoulderView(session.context) { binding, pressed ->
-                                onButtonEvent?.invoke(binding, pressed)
-                            }
-                            session.setContentView(view)
-                            makeWindowNotFocusable(view)
-                            setSessionActive(true)
-                        } catch (e: Exception) {
-                            Timber.e(e, "CoverScreenManager: failed to attach cover screen content")
-                            try {
-                                session.close()
-                            } catch (_: Exception) {
-                            }
-                        }
-                    }
-
-                    override fun onSessionEnded(t: Throwable?) {
-                        if (t != null) Timber.w(t, "CoverScreenManager: cover screen session ended with error")
-                        else Timber.i("CoverScreenManager: cover screen session ended")
-                        session = null
-                        presenting = false
-                        setSessionActive(false)
-                    }
-
-                    override fun onContainerVisibilityChanged(isVisible: Boolean) {
-                        Timber.d("CoverScreenManager: cover screen visibility changed: $isVisible")
-                    }
-                },
+                callback,
             )
         } catch (e: Exception) {
             Timber.e(e, "CoverScreenManager: failed to present on cover screen")
+            currentCallback = null
             presenting = false
         }
     }
