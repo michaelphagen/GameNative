@@ -36,7 +36,8 @@ fun OrientationDialog(
 
     val context = LocalContext.current
     val isFoldable = remember {
-        context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_SENSOR_HINGE_ANGLE)
+        context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_SENSOR_HINGE_ANGLE) &&
+            PrefManager.foldableSupportEnabled
     }
 
     var currentSettings by remember {

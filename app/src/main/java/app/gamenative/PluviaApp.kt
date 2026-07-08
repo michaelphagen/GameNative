@@ -215,6 +215,9 @@ class PluviaApp : SplitCompatApplication() {
         internal var xEnvironment: XEnvironment? = null
         internal var xServerView: XServerRendererView? = null
         var inputControlsView: InputControlsView? = null
+
+        // Container view hosting the game surface; used to move/resize the game area on foldables
+        var gameHostView: android.widget.FrameLayout? = null
         var inputControlsManager: InputControlsManager? = null
         var touchpadView: TouchpadView? = null
         var achievementWatcher: app.gamenative.service.AchievementWatcher? = null
@@ -253,6 +256,7 @@ class PluviaApp : SplitCompatApplication() {
 
             xEnvironment = null
             inputControlsView = null
+            gameHostView = null
             inputControlsManager = null
             touchpadView = null
             achievementWatcher = null

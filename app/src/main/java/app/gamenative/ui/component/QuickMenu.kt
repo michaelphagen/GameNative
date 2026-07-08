@@ -44,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Close
@@ -110,6 +111,7 @@ object QuickMenuAction {
     const val TOUCHSCREEN_MODE = 7
     const val DISABLE_MOUSE = 8
     const val EDIT_COVER_CONTROLS = 9
+    const val GAME_AREA = 10
 }
 
 private object QuickMenuTab {
@@ -256,6 +258,7 @@ fun QuickMenu(
     onFpsLimiterChanged: (Int) -> Unit = {},
     hasPhysicalController: Boolean = false,
     showEditCoverControls: Boolean = false,
+    showGameAreaOption: Boolean = false,
     isTouchscreenModeActive: Boolean = false,
     onTouchGestureSettingsClick: () -> Unit = {},
     activeToggleIds: Set<Int> = emptySet(),
@@ -326,6 +329,16 @@ fun QuickMenu(
                     id = QuickMenuAction.EDIT_COVER_CONTROLS,
                     icon = Icons.Default.Edit,
                     labelResId = R.string.edit_cover_controls,
+                    accentColor = PluviaTheme.colors.accentPurple,
+                )
+            )
+        }
+        if (showGameAreaOption) {
+            add(
+                QuickMenuItem(
+                    id = QuickMenuAction.GAME_AREA,
+                    icon = Icons.Default.AspectRatio,
+                    labelResId = R.string.game_area_title,
                     accentColor = PluviaTheme.colors.accentPurple,
                 )
             )

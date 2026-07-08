@@ -506,7 +506,6 @@ fun XServerScreen(
         activity = activity,
         lifecycleOwner = lifecycleOwner,
         coverScreenManager = coverScreenManager,
-        coverEnabled = PrefManager.coverScreenShoulderButtons,
         buildCoverContent = { ctx -> buildCoverScreenContent(foldable, container, xServerView?.getxServer(), ctx) },
         onFoldStateChanged = { unfolded ->
             if (!unfolded && foldable.editingCoverProfile) {
@@ -519,8 +518,10 @@ fun XServerScreen(
             }
             PluviaApp.events.emit(AndroidEvent.SetAllowedOrientation(currentAllowedOrientations(foldable, container)))
             applyOverlayProfileForFoldState(foldable, container, isEditMode)
+            applyGameAreaLayout(foldable, container)
         },
     )
+    var showGameAreaDialog by remember { mutableStateOf(false) }
     var hasPhysicalKeyboard by remember { mutableStateOf(false) }
     var hasPhysicalMouse by remember { mutableStateOf(false) }
     var usingScreenMirror by remember { mutableStateOf(false) }
@@ -1193,58 +1194,35 @@ fun XServerScreen(
             QuickMenuAction.EDIT_COVER_CONTROLS -> {
                 // The cover layout is edited directly on the cover presentation view, so the
                 // buttons are dragged on the physical panel they live on. The edit toolbar
-                // stays on the inner screen.
+                // stays on the inner screen. The profile itself is auto-created (with the
+                // default layout) when the cover session first presents.
                 keepPausedForEditor = true
-                val manager = PluviaApp.inputControlsManager ?: InputControlsManager(context)
-
-                var coverProfile = container.getExtra("profileIdCover", "0").toIntOrNull()
-                    ?.takeIf { it != 0 }
-                    ?.let { manager.getProfile(it) }
-
-                if (coverProfile == null) {
-                    val seedView = foldable.coverInputControlsView ?: PluviaApp.inputControlsView
-                    if (seedView != null) {
-                        try {
-                            val gameName = currentAppInfo?.name ?: container.name
-                            val created = manager.createProfile("$gameName - Cover Buttons")
-                            seedCoverProfile(created, seedView)
-                            created.save()
-                            container.putExtra("profileIdCover", created.id.toString())
-                            container.saveData()
-                            coverProfile = created
-                        } catch (e: Exception) {
-                            Timber.e(e, "Failed to create cover profile for container %s", container.name)
+                if (foldable.coverInputControlsView == null) coverScreenManager?.refreshContent()
+                val editView = foldable.coverInputControlsView
+                val coverProfile = editView?.profile
+                if (editView != null && coverProfile != null) {
+                    foldable.editingCoverProfile = true
+                    isEditMode = true
+                    editView.setEditMode(true)
+                    editView.post {
+                        coverProfile.loadElements(editView)
+                        // Snapshot for cancel, after elements have valid positions
+                        val snapshot = mutableMapOf<com.winlator.inputcontrols.ControlElement, Pair<Int, Int>>()
+                        coverProfile.elements.forEach { element ->
+                            snapshot[element] = Pair(element.x.toInt(), element.y.toInt())
                         }
-                    }
-                }
-
-                if (coverProfile != null) {
-                    // (Re)build the presentation content so it hosts the profile-backed view
-                    // (first edit replaces the default fallback grid)
-                    if (foldable.coverInputControlsView == null) coverScreenManager?.refreshContent()
-                    val editView = foldable.coverInputControlsView
-                    if (editView != null) {
-                        val profile = coverProfile
-                        foldable.editingCoverProfile = true
-                        isEditMode = true
-                        editView.setEditMode(true)
-                        editView.post {
-                            profile.loadElements(editView)
-                            // Snapshot for cancel, after elements have valid positions
-                            val snapshot = mutableMapOf<com.winlator.inputcontrols.ControlElement, Pair<Int, Int>>()
-                            profile.elements.forEach { element ->
-                                snapshot[element] = Pair(element.x.toInt(), element.y.toInt())
-                            }
-                            elementPositionsSnapshot = snapshot
-                            editView.invalidate()
-                        }
-                    } else {
-                        Timber.w("Cover screen session not active; cannot edit cover layout")
-                        keepPausedForEditor = false
+                        elementPositionsSnapshot = snapshot
+                        editView.invalidate()
                     }
                 } else {
+                    Timber.w("Cover screen session not active; cannot edit cover layout")
                     keepPausedForEditor = false
                 }
+                true
+            }
+
+            QuickMenuAction.GAME_AREA -> {
+                showGameAreaDialog = true
                 true
             }
 
@@ -2216,6 +2194,8 @@ fun XServerScreen(
             }
             frameLayout.addView(gameHost)
             gameHost.addView(xServerView as View)
+            PluviaApp.gameHostView = gameHost
+            gameHost.post { applyGameAreaLayout(foldable, container) }
 
             PluviaApp.inputControlsManager = InputControlsManager(context)
 
@@ -2650,7 +2630,8 @@ fun XServerScreen(
             onFpsLimiterEnabledChanged = ::applyFpsLimiterEnabled,
             onFpsLimiterChanged = ::applyFpsLimiterTarget,
             hasPhysicalController = hasPhysicalController,
-            showEditCoverControls = foldable.deviceIsFoldable && foldable.isDeviceUnfolded && PrefManager.coverScreenShoulderButtons,
+            showEditCoverControls = foldable.deviceIsFoldable && foldable.isDeviceUnfolded,
+            showGameAreaOption = foldable.deviceIsFoldable && foldable.isDeviceUnfolded,
             isTouchscreenModeActive = isTouchscreenModeActive,
             onTouchGestureSettingsClick = { showTouchGestureDialog = true },
             activeToggleIds = buildSet {
@@ -2710,6 +2691,15 @@ fun XServerScreen(
                 }
             }
         }
+    }
+
+    // Game area move/resize dialog (foldables, unfolded)
+    if (showGameAreaDialog) {
+        GameAreaDialog(
+            state = foldable,
+            container = container,
+            onDismiss = { showGameAreaDialog = false },
+        )
     }
 
     // Element Editor Dialog

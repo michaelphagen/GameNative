@@ -12,7 +12,6 @@ import androidx.window.area.WindowAreaSessionPresenter
 import androidx.window.core.ExperimentalWindowApi
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
-import app.gamenative.PluviaApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -127,7 +126,6 @@ class CoverScreenManager(private val activity: Activity) {
         }
         session = null
         presenting = false
-        setSessionActive(false)
     }
 
     private fun present(areaInfo: WindowAreaInfo) {
@@ -150,7 +148,6 @@ class CoverScreenManager(private val activity: Activity) {
                     val view = factory(session.context)
                     session.setContentView(view)
                     makeWindowNotFocusable(view)
-                    setSessionActive(true)
                 } catch (e: Exception) {
                     Timber.e(e, "CoverScreenManager: failed to attach cover screen content")
                     closeSession()
@@ -164,14 +161,11 @@ class CoverScreenManager(private val activity: Activity) {
                 currentCallback = null
                 session = null
                 presenting = false
-                setSessionActive(false)
             }
 
             override fun onContainerVisibilityChanged(isVisible: Boolean) {
                 if (currentCallback !== this) return
                 Timber.d("CoverScreenManager: cover screen visibility changed: $isVisible")
-                // While the cover content is hidden (e.g. mid-fold), restore on-screen buttons
-                setSessionActive(isVisible && session != null)
             }
         }
         currentCallback = callback
@@ -214,19 +208,4 @@ class CoverScreenManager(private val activity: Activity) {
         }
     }
 
-    private fun setSessionActive(active: Boolean) {
-        if (sessionActive == active) return
-        sessionActive = active
-        // Redraw the touch overlay so on-screen shoulder buttons hide/reappear
-        PluviaApp.inputControlsView?.postInvalidate()
-    }
-
-    companion object {
-        @Volatile
-        private var sessionActive = false
-
-        /** Whether controls are currently shown on the cover screen. */
-        @JvmStatic
-        fun isSessionActive(): Boolean = sessionActive
-    }
 }
