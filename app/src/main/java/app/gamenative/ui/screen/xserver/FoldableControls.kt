@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -167,11 +167,11 @@ fun buildCoverScreenContent(
     }
     if (coverProfile != null && xServer != null) {
         val profile = coverProfile
-        // Merge cover input into the overlay profile's gamepad state so committing one
-        // doesn't release buttons held on the other
-        PluviaApp.inputControlsView?.profile?.let { profile.setSharedGamepadState(it.gamepadState) }
         val icView = InputControlsView(ctx)
         icView.setXServer(xServer)
+        // Merge cover input into the canonical shared gamepad state so pressing a cover button
+        // doesn't clear sticks/buttons currently held on the inner overlay (and vice versa)
+        PluviaApp.sharedVirtualGamepadState?.let { icView.setSharedGamepadState(it) }
         icView.setProfile(profile)
         icView.setOverlayOpacity(PrefManager.getFloat("controls_opacity", InputControlsView.DEFAULT_OVERLAY_OPACITY))
         icView.post {
@@ -213,44 +213,51 @@ fun buildCoverScreenContent(
  * with the game host so touch-to-game coordinate mapping stays correct (TouchpadView rebuilds
  * its transform in onSizeChanged).
  */
+/** Max inset per edge (percent); leaves at least ~30% of each dimension for the game. */
+const val GAME_AREA_MAX_INSET = 70
+
+private fun gameAreaInset(container: Container, edge: String): Int =
+    (container.getExtra("gameAreaInset$edge", "0").toIntOrNull() ?: 0).coerceIn(0, GAME_AREA_MAX_INSET)
+
 fun applyGameAreaLayout(state: FoldableControlsState, container: Container) {
     val host = PluviaApp.gameHostView ?: return
     host.post {
         val parent = host.parent as? View ?: return@post
-        val anchor = container.getExtra("gameAreaAnchor", "full")
-        val sizePct = (container.getExtra("gameAreaWidth", "100").toIntOrNull() ?: 100).coerceIn(30, 100)
-        val active = state.deviceIsFoldable && state.isDeviceUnfolded && !container.isPortraitMode &&
-            anchor != "full" && sizePct < 100 && parent.width > 0 && parent.height > 0
-        var width = ViewGroup.LayoutParams.MATCH_PARENT
-        var height = ViewGroup.LayoutParams.MATCH_PARENT
-        var gravity = Gravity.NO_GRAVITY
-        if (active) {
-            when (anchor) {
-                "left" -> {
-                    width = parent.width * sizePct / 100
-                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                }
-                "right" -> {
-                    width = parent.width * sizePct / 100
-                    gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                }
-                "top" -> {
-                    height = parent.height * sizePct / 100
-                    gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                }
-                "bottom" -> {
-                    height = parent.height * sizePct / 100
-                    gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                }
-            }
+        val enabled = state.deviceIsFoldable && state.isDeviceUnfolded && !container.isPortraitMode &&
+            parent.width > 0 && parent.height > 0
+
+        // Four independent edge insets (percent of the corresponding dimension). The game area
+        // is the parent rectangle minus these insets, positioned via view margins so it can be
+        // both moved and resized freely (e.g. 40% left + 20% top).
+        var left = if (enabled) gameAreaInset(container, "Left") else 0
+        var right = if (enabled) gameAreaInset(container, "Right") else 0
+        var top = if (enabled) gameAreaInset(container, "Top") else 0
+        var bottom = if (enabled) gameAreaInset(container, "Bottom") else 0
+        // Keep opposite insets from collapsing the area past ~15% of a dimension
+        if (left + right > 85) right = 85 - left
+        if (top + bottom > 85) bottom = 85 - top
+
+        val lp = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ).apply {
+            leftMargin = parent.width * left / 100
+            rightMargin = parent.width * right / 100
+            topMargin = parent.height * top / 100
+            bottomMargin = parent.height * bottom / 100
         }
-        host.layoutParams = FrameLayout.LayoutParams(width, height, gravity)
+        host.layoutParams = lp
         PluviaApp.touchpadView?.let { touchpad ->
             if (touchpad.parent === parent) {
-                touchpad.layoutParams = FrameLayout.LayoutParams(width, height, gravity)
+                touchpad.layoutParams = FrameLayout.LayoutParams(lp.width, lp.height).apply {
+                    leftMargin = lp.leftMargin
+                    rightMargin = lp.rightMargin
+                    topMargin = lp.topMargin
+                    bottomMargin = lp.bottomMargin
+                }
             }
         }
-        Timber.i("Game area layout: anchor=%s size=%d%% active=%s", anchor, sizePct, active)
+        Timber.i("Game area insets: L=%d R=%d T=%d B=%d enabled=%s", left, right, top, bottom, enabled)
     }
 }
 
@@ -261,14 +268,16 @@ fun GameAreaDialog(
     container: Container,
     onDismiss: () -> Unit,
 ) {
-    var anchor by remember { mutableStateOf(container.getExtra("gameAreaAnchor", "full")) }
-    var sizePct by remember {
-        mutableIntStateOf((container.getExtra("gameAreaWidth", "100").toIntOrNull() ?: 100).coerceIn(30, 100))
-    }
+    var left by remember { mutableIntStateOf(gameAreaInset(container, "Left")) }
+    var right by remember { mutableIntStateOf(gameAreaInset(container, "Right")) }
+    var top by remember { mutableIntStateOf(gameAreaInset(container, "Top")) }
+    var bottom by remember { mutableIntStateOf(gameAreaInset(container, "Bottom")) }
 
     fun applyAndPersist() {
-        container.putExtra("gameAreaAnchor", anchor)
-        container.putExtra("gameAreaWidth", sizePct.toString())
+        container.putExtra("gameAreaInsetLeft", left.toString())
+        container.putExtra("gameAreaInsetRight", right.toString())
+        container.putExtra("gameAreaInsetTop", top.toString())
+        container.putExtra("gameAreaInsetBottom", bottom.toString())
         container.saveData()
         applyGameAreaLayout(state, container)
     }
@@ -278,49 +287,11 @@ fun GameAreaDialog(
         title = { Text(text = stringResource(R.string.game_area_title)) },
         text = {
             Column {
-                listOf(
-                    listOf(
-                        "full" to R.string.game_area_full,
-                        "left" to R.string.game_area_left,
-                        "right" to R.string.game_area_right,
-                    ),
-                    listOf(
-                        "top" to R.string.game_area_top,
-                        "bottom" to R.string.game_area_bottom,
-                    ),
-                ).forEach { rowOptions ->
-                    Row {
-                        rowOptions.forEach { (option, labelRes) ->
-                            FilterChip(
-                                selected = anchor == option,
-                                onClick = {
-                                    anchor = option
-                                    applyAndPersist()
-                                },
-                                label = { Text(text = stringResource(labelRes)) },
-                                modifier = Modifier.padding(end = 8.dp),
-                            )
-                        }
-                    }
-                }
-                if (anchor != "full") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Slider(
-                            value = sizePct.toFloat(),
-                            onValueChange = { sizePct = it.toInt() },
-                            onValueChangeFinished = { applyAndPersist() },
-                            valueRange = 30f..100f,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = "$sizePct%",
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
-                    }
-                }
+                Text(text = stringResource(R.string.game_area_subtitle))
+                InsetSlider(R.string.game_area_left, left, { left = it }, { applyAndPersist() })
+                InsetSlider(R.string.game_area_right, right, { right = it }, { applyAndPersist() })
+                InsetSlider(R.string.game_area_top, top, { top = it }, { applyAndPersist() })
+                InsetSlider(R.string.game_area_bottom, bottom, { bottom = it }, { applyAndPersist() })
             }
         },
         confirmButton = {
@@ -329,6 +300,27 @@ fun GameAreaDialog(
             }
         },
     )
+}
+
+@Composable
+private fun InsetSlider(labelRes: Int, value: Int, onChange: (Int) -> Unit, onCommit: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(labelRes),
+            modifier = Modifier.width(56.dp),
+        )
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange(it.toInt()) },
+            onValueChangeFinished = onCommit,
+            valueRange = 0f..GAME_AREA_MAX_INSET.toFloat(),
+            modifier = Modifier.weight(1f),
+        )
+        Text(text = "$value%", modifier = Modifier.width(44.dp).padding(start = 8.dp))
+    }
 }
 
 /**

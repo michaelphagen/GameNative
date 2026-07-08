@@ -2272,6 +2272,13 @@ fun XServerScreen(
                 setContainerShooterMode(container.isShooterMode)
             }
             PluviaApp.inputControlsView = icView
+            // Establish the canonical shared gamepad state from the inner overlay's profile so
+            // the cover screen merges into the same state (see PluviaApp.sharedVirtualGamepadState)
+            icView.profile?.let { p ->
+                val shared = p.gamepadState
+                PluviaApp.sharedVirtualGamepadState = shared
+                icView.setSharedGamepadState(shared)
+            }
 
             // Wire SHOW_KEYBOARD binding callback for overlay control buttons
             icView.setShowKeyboardCallback {

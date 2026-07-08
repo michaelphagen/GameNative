@@ -274,9 +274,24 @@ public class InputControlsView extends View {
     public synchronized void setProfile(ControlsProfile profile) {
         if (profile != null) {
             this.profile = profile;
+            // Keep every profile this view uses pointed at the shared gamepad state so input
+            // from multiple surfaces (inner overlay + foldable cover screen) merges instead of
+            // overwriting each other's buttons/sticks on commit.
+            if (sharedGamepadState != null) profile.setSharedGamepadState(sharedGamepadState);
             deselectAllElements();
         }
         else this.profile = null;
+    }
+
+    private GamepadState sharedGamepadState;
+
+    /**
+     * Share a single GamepadState across control surfaces so their inputs combine. Applied to
+     * the current profile immediately and to any profile set later via {@link #setProfile}.
+     */
+    public void setSharedGamepadState(GamepadState state) {
+        this.sharedGamepadState = state;
+        if (state != null && profile != null) profile.setSharedGamepadState(state);
     }
 
     public boolean isShowTouchscreenControls() {

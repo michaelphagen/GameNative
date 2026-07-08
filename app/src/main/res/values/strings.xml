@@ -245,6 +245,7 @@
     <string name="game_area_right">Right</string>
     <string name="game_area_top">Top</string>
     <string name="game_area_bottom">Bottom</string>
+    <string name="game_area_subtitle">Trim each edge to move and resize the game on the screen</string>
     <string name="edit_physical_controller">Edit Physical Controller</string>
     <string name="controller_disconnected">Disconnected</string>
     <string name="reset_onscreen_controls">Reset On-Screen Controls</string>
