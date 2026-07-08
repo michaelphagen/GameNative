@@ -1004,6 +1004,9 @@ public class InputControlsView extends View {
                             }
                         }
                     }
+                    // Screen-wide touchpad claims touches no element handled, before the
+                    // regular mouse touchpad fallback
+                    if (!handled) handled = startScreenWideTouchpad(pointerId, x, y);
                     if (!handled && touchpadView != null) touchpadView.onTouchEvent(event);
                     break;
                 }
@@ -1058,14 +1061,34 @@ public class InputControlsView extends View {
             }
 
             // commit on-screen joystick state
-            WinHandler winHandler = xServer != null ? xServer.getWinHandler() : null;
-            if (winHandler != null) {
-                GamepadState state = profile.getGamepadState();
-                winHandler.sendGamepadState();
-                winHandler.sendVirtualGamepadState(state);
-            }
+            commitGamepadState();
         }
         return true;
+    }
+
+    /** Route an unclaimed touch to a screen-wide TOUCHPAD element, if the profile has one. */
+    private synchronized boolean startScreenWideTouchpad(int pointerId, float x, float y) {
+        if (profile == null) return false;
+        for (ControlElement element : profile.getElements()) {
+            if (element.getType() == ControlElement.Type.TOUCHPAD && element.isTouchpadScreenWide()
+                    && element.handleScreenWideTouchDown(pointerId, x, y)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Send the profile's current gamepad state to the game. Called at the end of every touch
+     * event and by the touchpad-as-joystick ticker, whose output changes between touch events.
+     */
+    public void commitGamepadState() {
+        if (profile == null) return;
+        WinHandler winHandler = xServer != null ? xServer.getWinHandler() : null;
+        if (winHandler != null) {
+            winHandler.sendGamepadState();
+            winHandler.sendVirtualGamepadState(profile.getGamepadState());
+        }
     }
 
     public boolean onKeyEvent(KeyEvent event) {
