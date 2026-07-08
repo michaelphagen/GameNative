@@ -457,6 +457,12 @@
     <string name="touchpad_stick_left">Left Stick (movement)</string>
     <string name="touchpad_sensitivity">Sensitivity</string>
     <string name="touchpad_sensitivity_subtitle">Swipe speed to stick deflection multiplier</string>
+    <string name="touchpad_momentum">Flick Momentum</string>
+    <string name="touchpad_momentum_subtitle">Camera keeps gliding after a flick, like a trackball; 0% stops instantly on lift</string>
+    <string name="touchpad_acceleration">Acceleration</string>
+    <string name="touchpad_acceleration_subtitle">Makes slow swipes finer and fast swipes proportionally stronger</string>
+    <string name="touchpad_min_output">Precision Floor</string>
+    <string name="touchpad_min_output_subtitle">Minimum stick output while moving, so tiny swipes get past the game\'s deadzone</string>
     <string name="touchpad_screen_wide">Screen-Wide Touchpad</string>
     <string name="touchpad_screen_wide_subtitle">Swipes anywhere on screen (outside other controls) drive this touchpad; the pad itself is hidden during play</string>
 

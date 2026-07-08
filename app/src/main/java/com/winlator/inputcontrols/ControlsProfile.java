@@ -290,6 +290,9 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
 
                 if (elementJSONObject.has("touchpadSensitivity")) element.setTouchpadSensitivity((float)elementJSONObject.getDouble("touchpadSensitivity"));
                 if (elementJSONObject.has("touchpadScreenWide")) element.setTouchpadScreenWide(elementJSONObject.getBoolean("touchpadScreenWide"));
+                if (elementJSONObject.has("touchpadMomentum")) element.setTouchpadMomentum((float)elementJSONObject.getDouble("touchpadMomentum"));
+                if (elementJSONObject.has("touchpadAcceleration")) element.setTouchpadAcceleration((float)elementJSONObject.getDouble("touchpadAcceleration"));
+                if (elementJSONObject.has("touchpadMinOutput")) element.setTouchpadMinOutput((float)elementJSONObject.getDouble("touchpadMinOutput"));
 
                 boolean hasGamepadBinding = true;
                 JSONArray bindingsJSONArray = elementJSONObject.getJSONArray("bindings");
