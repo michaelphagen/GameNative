@@ -468,7 +468,11 @@
     <!-- Gyro Settings (standalone screen) -->
     <string name="gyro_settings">Gyro</string>
     <string name="gyro_enable">Enable Gyro Aiming</string>
-    <string name="gyro_enable_subtitle">Master switch for gyroscope aiming in this profile</string>
+    <string name="gyro_enable_subtitle">Master switch for gyroscope aiming in this profile (works with or without on-screen controls)</string>
+    <string name="gyro_always_on">Always On</string>
+    <string name="gyro_always_on_subtitle">Gyro is active continuously; ignore triggers below</string>
+    <string name="gyro_triggers_help">Gyro turns on while any selected button is held (or tapped, in toggle mode). Buttons work whether pressed on a physical controller or an on-screen button.</string>
+    <string name="gyro_touch_triggers">Touchpad Triggers</string>
     <string name="gyro_output_stick">Output Stick</string>
     <string name="gyro_output_stick_subtitle">Which emulated joystick the gyro drives</string>
     <string name="gyro_sensitivity">Sensitivity</string>
@@ -487,6 +491,8 @@
     <string name="gyro_triggers_none">No touchpads to use as triggers</string>
     <string name="gyro_triggers_none_subtitle">Add a Touchpad (Joystick) control to trigger gyro by touch</string>
     <string name="gyro_trigger_touchpad_label">Touchpad %1$d — %2$s</string>
+    <string name="gyro_trigger_stick_label">Stick %1$d — %2$s</string>
+    <string name="gyro_triggers_ignored">Always On is enabled, so these triggers are currently ignored. Turn off Always On to use them.</string>
     <string name="gyro_trigger_enable_subtitle">Touching this pad activates gyro</string>
     <string name="gyro_trigger_mode">Activation</string>
     <string name="gyro_trigger_mode_subtitle">Momentary holds gyro while touched; toggle flips it on each touch</string>

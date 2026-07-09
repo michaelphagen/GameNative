@@ -32,7 +32,6 @@ import com.winlator.inputcontrols.ControlsProfile;
 import com.winlator.inputcontrols.ExternalController;
 import com.winlator.inputcontrols.ExternalControllerBinding;
 import com.winlator.inputcontrols.GamepadState;
-import com.winlator.inputcontrols.GyroInput;
 import com.winlator.math.Mathf;
 import com.winlator.winhandler.MouseEventFlags;
 import com.winlator.winhandler.WinHandler;
@@ -460,7 +459,6 @@ public class InputControlsView extends View {
         if (mouseMoveTimer != null)
             mouseMoveTimer.cancel();
         touchpadTickerRunning = false;
-        deactivateGyroSensor();
         super.onDetachedFromWindow();
     }
 
@@ -1081,40 +1079,35 @@ public class InputControlsView extends View {
         return false;
     }
 
-    // ---- Centralized touchpad-joystick + gyro ticker ----
-    // Touch output and gyro aiming can both target the same emulated stick, so a single 60Hz
-    // loop owns computing every touchpad element's contribution, mixing in gyro, and writing
-    // the combined per-stick values. Individual elements only compute; they never inject here.
-    private GyroInput gyroInput;
+    // ---- Touchpad-joystick ticker ----
+    // A single 60Hz loop computes every touchpad element's stick contribution and writes the
+    // combined per-stick values. Gyro aiming is handled separately by the standalone
+    // GyroController (which adds into dedicated additive stick fields), so gyro works even when
+    // these touch controls are hidden; the two never overwrite each other.
     private boolean touchpadTickerRunning = false;
     private Runnable touchpadTicker;
-    private boolean gyroButtonActive = false; // GYRO binding held/toggled via a button
 
-    /** Lazily created gyroscope wrapper shared by this view's touchpad elements. */
-    public GyroInput getGyroInput() {
-        if (gyroInput == null) gyroInput = new GyroInput(this);
-        return gyroInput;
+    /** Notified when a GYRO-bound button on this surface is pressed/released. */
+    public interface GyroTriggerListener { void onGyroTrigger(boolean active); }
+    private GyroTriggerListener gyroTriggerListener;
+
+    public void setGyroTriggerListener(GyroTriggerListener listener) {
+        this.gyroTriggerListener = listener;
     }
 
-    /** Unregister the gyro hardware listener if it was ever started. */
-    public void deactivateGyroSensor() {
-        if (gyroInput != null) gyroInput.setActive(false);
-    }
-
-    /** GYRO binding pressed/released (the on-screen or physical button trigger). */
+    /** GYRO binding pressed/released on a touch button — forward to the gyro runtime. */
     private void setGyroButtonActive(boolean active) {
-        gyroButtonActive = active;
-        if (active) notifyTouchpadActivity();
+        if (gyroTriggerListener != null) gyroTriggerListener.onGyroTrigger(active);
     }
 
-    /** Start the central ticker if it isn't already running (a pad was touched, gyro engaged). */
+    /** Start the touchpad ticker if it isn't already running (a pad was touched). */
     public void notifyTouchpadActivity() {
         if (touchpadTickerRunning) return;
         touchpadTickerRunning = true;
         if (touchpadTicker == null) {
             touchpadTicker = () -> {
                 if (!touchpadTickerRunning) return;
-                boolean keepGoing = tickTouchpadsAndGyro();
+                boolean keepGoing = tickTouchpads();
                 if (keepGoing && touchpadTickerRunning) {
                     postDelayed(touchpadTicker, 1000 / 60);
                 }
@@ -1126,29 +1119,12 @@ public class InputControlsView extends View {
         postDelayed(touchpadTicker, 1000 / 60);
     }
 
-    /** Whether gyro aiming should currently be producing output (any trigger asserted). */
-    private synchronized boolean isGyroActive() {
-        if (profile == null || !profile.isGyroEnabled()) return false;
-        if (gyroButtonActive) return true;
-        for (ControlElement element : profile.getElements()) {
-            if (element.isGyroTriggerAsserted()) return true;
-        }
-        return false;
-    }
-
     /**
-     * One 60Hz step: sum every touchpad's touch output and (if active) gyro into per-stick
-     * vectors, write the combined result, and commit. Returns true while work remains.
+     * One 60Hz step: sum every touchpad's touch output into per-stick vectors, write the
+     * combined result, and commit. Returns true while work remains.
      */
-    private synchronized boolean tickTouchpadsAndGyro() {
-        if (profile == null || !isAttachedToWindow()) {
-            deactivateGyroSensor();
-            return false;
-        }
-
-        boolean gyroActive = isGyroActive();
-        GyroInput gyro = getGyroInput();
-        gyro.setActive(gyroActive);
+    private synchronized boolean tickTouchpads() {
+        if (profile == null || !isAttachedToWindow()) return false;
 
         float leftX = 0, leftY = 0, rightX = 0, rightY = 0;
         boolean leftUsed = false, rightUsed = false;
@@ -1168,44 +1144,24 @@ public class InputControlsView extends View {
             }
         }
 
-        // Gyro adds on top of the touch output for its configured stick
-        if (gyroActive && gyro.isActive()) {
-            float sens = profile.getGyroSensitivity() / GYRO_FULL_DEFLECTION_RATE;
-            float gx = gyro.getRate(profile.getGyroAxisX()) * sens * (profile.isGyroInvertX() ? 1f : -1f);
-            float gy = gyro.getRate(profile.getGyroAxisY()) * sens * (profile.isGyroInvertY() ? 1f : -1f);
-            if (profile.isGyroOutputLeftStick()) {
-                leftUsed = true; leftX += gx; leftY += gy;
-            }
-            else {
-                rightUsed = true; rightX += gx; rightY += gy;
-            }
-        }
-
-        boolean keepGoing = anyTouchWork || gyroActive;
-
-        if (keepGoing) {
+        if (anyTouchWork) {
             if (leftUsed) emitStick(true, Mathf.clamp(leftX, -1, 1), Mathf.clamp(leftY, -1, 1));
             if (rightUsed) emitStick(false, Mathf.clamp(rightX, -1, 1), Mathf.clamp(rightY, -1, 1));
-            // Remember which sticks we're driving so we can zero exactly those when we stop,
-            // even if this tick's contributor (e.g. gyro) has since gone away.
             tickLeftStickDriven |= leftUsed;
             tickRightStickDriven |= rightUsed;
         }
         else {
-            // Settle any stick we ever drove back to neutral and release the sensor
+            // Settle any stick we ever drove back to neutral
             if (tickLeftStickDriven) emitStick(true, 0, 0);
             if (tickRightStickDriven) emitStick(false, 0, 0);
             tickLeftStickDriven = false;
             tickRightStickDriven = false;
-            deactivateGyroSensor();
         }
         commitGamepadState();
-        return keepGoing;
+        return anyTouchWork;
     }
 
-    // Angular velocity (rad/s) that maps to full stick deflection at gyro sensitivity 1.0x
-    private static final float GYRO_FULL_DEFLECTION_RATE = 2.0f;
-    // Sticks the central ticker has driven this session, so it can zero exactly those on stop
+    // Sticks the touchpad ticker has driven this session, so it can zero exactly those on stop
     private boolean tickLeftStickDriven = false;
     private boolean tickRightStickDriven = false;
 

@@ -21,29 +21,39 @@ import app.gamenative.ui.theme.settingsTileColorsAlt
 import com.alorma.compose.settings.ui.SettingsGroup
 import com.alorma.compose.settings.ui.SettingsMenuLink
 import com.alorma.compose.settings.ui.SettingsSwitch
+import com.winlator.inputcontrols.Binding
 import com.winlator.inputcontrols.ControlElement
+import com.winlator.inputcontrols.ControlsProfile
 import com.winlator.inputcontrols.GyroInput
-import com.winlator.widget.InputControlsView
 import java.util.Locale
 
+// Gamepad buttons offered as gyro triggers. Because physical controllers and on-screen buttons
+// set the same gamepad state, one selection covers either input source.
+private val GYRO_TRIGGER_CANDIDATES = listOf(
+    Binding.GAMEPAD_BUTTON_A, Binding.GAMEPAD_BUTTON_B, Binding.GAMEPAD_BUTTON_X, Binding.GAMEPAD_BUTTON_Y,
+    Binding.GAMEPAD_BUTTON_L1, Binding.GAMEPAD_BUTTON_R1, Binding.GAMEPAD_BUTTON_L2, Binding.GAMEPAD_BUTTON_R2,
+    Binding.GAMEPAD_BUTTON_L3, Binding.GAMEPAD_BUTTON_R3, Binding.GAMEPAD_BUTTON_SELECT, Binding.GAMEPAD_BUTTON_START,
+    Binding.GAMEPAD_DPAD_UP, Binding.GAMEPAD_DPAD_DOWN, Binding.GAMEPAD_DPAD_LEFT, Binding.GAMEPAD_DPAD_RIGHT,
+)
+
 /**
- * Standalone Gyro Settings screen (profile-level). Configures gyro aiming independently of any
- * one touch control: master enable, which emulated stick it drives, sensitivity, per-axis source
- * mapping (yaw/pitch/roll) with invert, and the list of triggers that turn gyro on — each
- * touchpad can act as a momentary or toggle trigger. A dedicated on-screen button that toggles
- * gyro is created separately by binding a BUTTON element to the GYRO action.
+ * Standalone Gyro Settings screen (profile-level), independent of the touch controller. Configures
+ * gyro aiming: master enable, always-on vs triggered, which emulated stick it drives, sensitivity,
+ * per-axis source mapping (yaw/pitch/roll) with invert, and the activation triggers.
+ *
+ * Triggers are gamepad buttons (fired by a physical controller OR an on-screen button mapped to
+ * that button), plus — when touch controls exist — per-touchpad touch triggers. A dedicated on/off
+ * button can also be made by binding any button to the GYRO action.
  *
  * Rendered inline (no platform Dialog) so it also works on the foldable cover presentation.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GyroSettingsDialog(
-    view: InputControlsView,
+    profile: ControlsProfile,
     onDismiss: () -> Unit,
     onSave: () -> Unit,
 ) {
-    val profile = view.profile
-
     val axisOptions = remember { listOf(GyroInput.Axis.YAW, GyroInput.Axis.PITCH, GyroInput.Axis.ROLL) }
     val axisLabels = listOf(
         stringResource(R.string.gyro_axis_yaw),
@@ -59,49 +69,73 @@ fun GyroSettingsDialog(
         stringResource(R.string.gyro_trigger_toggle),
     )
 
-    var gyroEnabled by remember { mutableStateOf(profile?.isGyroEnabled ?: false) }
-    var outputStickIndex by remember { mutableIntStateOf(if (profile?.isGyroOutputLeftStick == true) 1 else 0) }
-    var sensitivity by remember { mutableFloatStateOf(profile?.gyroSensitivity ?: 3.0f) }
-    var axisXIndex by remember { mutableIntStateOf(axisOptions.indexOf(profile?.gyroAxisX ?: GyroInput.Axis.YAW).coerceAtLeast(0)) }
-    var axisYIndex by remember { mutableIntStateOf(axisOptions.indexOf(profile?.gyroAxisY ?: GyroInput.Axis.PITCH).coerceAtLeast(0)) }
-    var invertX by remember { mutableStateOf(profile?.isGyroInvertX ?: false) }
-    var invertY by remember { mutableStateOf(profile?.isGyroInvertY ?: false) }
+    var gyroEnabled by remember { mutableStateOf(profile.isGyroEnabled) }
+    var alwaysOn by remember { mutableStateOf(profile.isGyroAlwaysOn) }
+    var outputStickIndex by remember { mutableIntStateOf(if (profile.isGyroOutputLeftStick) 1 else 0) }
+    var sensitivity by remember { mutableFloatStateOf(profile.gyroSensitivity) }
+    var axisXIndex by remember { mutableIntStateOf(axisOptions.indexOf(profile.gyroAxisX).coerceAtLeast(0)) }
+    var axisYIndex by remember { mutableIntStateOf(axisOptions.indexOf(profile.gyroAxisY).coerceAtLeast(0)) }
+    var invertX by remember { mutableStateOf(profile.isGyroInvertX) }
+    var invertY by remember { mutableStateOf(profile.isGyroInvertY) }
 
-    // Trigger list: one entry per touchpad element in the profile.
-    val touchpads = remember {
-        profile?.getElements()?.filter { it.type == ControlElement.Type.TOUCHPAD } ?: emptyList()
+    // Button trigger state, parallel to GYRO_TRIGGER_CANDIDATES
+    val btnEnabled: SnapshotStateList<Boolean> = remember {
+        mutableStateListOf<Boolean>().apply {
+            GYRO_TRIGGER_CANDIDATES.forEach { b -> add(profile.gyroTriggers.any { it.button == b }) }
+        }
     }
-    val triggerEnabled: SnapshotStateList<Boolean> = remember {
-        mutableStateListOf<Boolean>().apply { touchpads.forEach { add(it.isTouchpadGyroTrigger) } }
+    val btnToggle: SnapshotStateList<Boolean> = remember {
+        mutableStateListOf<Boolean>().apply {
+            GYRO_TRIGGER_CANDIDATES.forEach { b -> add(profile.gyroTriggers.firstOrNull { it.button == b }?.toggle ?: false) }
+        }
     }
-    val triggerToggle: SnapshotStateList<Boolean> = remember {
-        mutableStateListOf<Boolean>().apply { touchpads.forEach { add(it.isTouchpadGyroTriggerToggle) } }
+    val candidateLabels = remember { GYRO_TRIGGER_CANDIDATES.map { it.toString() } }
+
+    // Touch-control triggers: any on-screen touchpad or stick can activate gyro by being touched.
+    val touchElements = remember {
+        profile.getElements().filter { it.canBeGyroTrigger() }
+    }
+    val padEnabled: SnapshotStateList<Boolean> = remember {
+        mutableStateListOf<Boolean>().apply { touchElements.forEach { add(it.isGyroTrigger) } }
+    }
+    val padToggle: SnapshotStateList<Boolean> = remember {
+        mutableStateListOf<Boolean>().apply { touchElements.forEach { add(it.isGyroTriggerToggle) } }
     }
     val leftStickLabel = stringResource(R.string.touchpad_stick_left)
     val rightStickLabel = stringResource(R.string.touchpad_stick_right)
-    val touchpadLabels = touchpads.mapIndexed { index, element ->
-        val stick = if (element.getBindingAt(0) == com.winlator.inputcontrols.Binding.GAMEPAD_LEFT_THUMB_UP) {
-            leftStickLabel
+    var padCount = 0
+    var stickCount = 0
+    val touchLabels = touchElements.map { element ->
+        val stickSide = if (element.getBindingAt(0) == Binding.GAMEPAD_LEFT_THUMB_UP) leftStickLabel else rightStickLabel
+        if (element.type == ControlElement.Type.TOUCHPAD) {
+            padCount += 1
+            stringResource(R.string.gyro_trigger_touchpad_label, padCount, stickSide)
         } else {
-            rightStickLabel
+            stickCount += 1
+            stringResource(R.string.gyro_trigger_stick_label, stickCount, stickSide)
         }
-        stringResource(R.string.gyro_trigger_touchpad_label, index + 1, stick)
     }
 
     fun persist() {
-        profile ?: return
         profile.isGyroEnabled = gyroEnabled
+        profile.isGyroAlwaysOn = alwaysOn
         profile.isGyroOutputLeftStick = outputStickIndex == 1
         profile.gyroSensitivity = sensitivity
         profile.gyroAxisX = axisOptions[axisXIndex]
         profile.gyroAxisY = axisOptions[axisYIndex]
         profile.isGyroInvertX = invertX
         profile.isGyroInvertY = invertY
-        touchpads.forEachIndexed { i, element ->
-            element.isTouchpadGyroTrigger = triggerEnabled[i]
-            element.isTouchpadGyroTriggerToggle = triggerToggle[i]
+        profile.gyroTriggers.clear()
+        GYRO_TRIGGER_CANDIDATES.forEachIndexed { i, button ->
+            if (btnEnabled[i]) profile.gyroTriggers.add(ControlsProfile.GyroTrigger(button, btnToggle[i]))
+        }
+        touchElements.forEachIndexed { i, element ->
+            element.isGyroTrigger = padEnabled[i]
+            element.isGyroTriggerToggle = padToggle[i]
         }
         profile.save()
+        // Apply immediately to the live gyro runtime
+        app.gamenative.PluviaApp.gyroController?.syncRunning()
     }
 
     InlineDialogScrim(onDismissRequest = onDismiss) {
@@ -120,10 +154,7 @@ fun GyroSettingsDialog(
                         IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null) }
                     },
                     actions = {
-                        IconButton(onClick = {
-                            persist()
-                            onSave()
-                        }) { Icon(Icons.Default.Save, null) }
+                        IconButton(onClick = { persist(); onSave() }) { Icon(Icons.Default.Save, null) }
                     },
                 )
             },
@@ -134,16 +165,6 @@ fun GyroSettingsDialog(
                     .padding(padding)
                     .verticalScroll(rememberScrollState()),
             ) {
-                val gyroAvailable = remember { view.gyroInput.isAvailable }
-                if (!gyroAvailable) {
-                    Text(
-                        text = stringResource(R.string.gyro_unavailable),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                }
-
                 SettingsGroup(title = { Text(stringResource(R.string.gyro_settings)) }) {
                     SettingsSwitch(
                         colors = settingsTileColorsAlt(),
@@ -152,7 +173,13 @@ fun GyroSettingsDialog(
                         state = gyroEnabled,
                         onCheckedChange = { gyroEnabled = it },
                     )
-
+                    SettingsSwitch(
+                        colors = settingsTileColorsAlt(),
+                        title = { Text(stringResource(R.string.gyro_always_on)) },
+                        subtitle = { Text(stringResource(R.string.gyro_always_on_subtitle)) },
+                        state = alwaysOn,
+                        onCheckedChange = { alwaysOn = it },
+                    )
                     SettingsListDropdown(
                         colors = settingsTileColors(),
                         title = { Text(stringResource(R.string.gyro_output_stick)) },
@@ -161,7 +188,6 @@ fun GyroSettingsDialog(
                         items = stickLabels,
                         onItemSelected = { outputStickIndex = it },
                     )
-
                     SettingsMenuLink(
                         colors = settingsTileColors(),
                         title = { Text(stringResource(R.string.gyro_sensitivity)) },
@@ -218,34 +244,57 @@ fun GyroSettingsDialog(
                     )
                 }
 
+                // Unified trigger list: on-screen sticks/touchpads (by touch) and gamepad buttons
+                // (from a physical controller or an on-screen button). Always shown; when Always
+                // On is enabled the runtime ignores these, and the note below says so.
                 SettingsGroup(title = { Text(stringResource(R.string.gyro_triggers)) }) {
-                    if (touchpads.isEmpty()) {
-                        SettingsMenuLink(
-                            colors = settingsTileColors(),
-                            title = { Text(stringResource(R.string.gyro_triggers_none)) },
-                            subtitle = { Text(stringResource(R.string.gyro_triggers_none_subtitle)) },
-                            enabled = false,
-                            onClick = {},
+                    Text(
+                        text = stringResource(
+                            if (alwaysOn) R.string.gyro_triggers_ignored else R.string.gyro_triggers_help
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+
+                    // Touch controls (sticks and touchpads)
+                    touchElements.forEachIndexed { i, _ ->
+                        SettingsSwitch(
+                            colors = settingsTileColorsAlt(),
+                            title = { Text(touchLabels[i]) },
+                            subtitle = { Text(stringResource(R.string.gyro_trigger_enable_subtitle)) },
+                            state = padEnabled[i],
+                            onCheckedChange = { padEnabled[i] = it },
                         )
-                    } else {
-                        touchpads.forEachIndexed { i, element ->
-                            SettingsSwitch(
-                                colors = settingsTileColorsAlt(),
-                                title = { Text(touchpadLabels[i]) },
-                                subtitle = { Text(stringResource(R.string.gyro_trigger_enable_subtitle)) },
-                                state = triggerEnabled[i],
-                                onCheckedChange = { triggerEnabled[i] = it },
+                        if (padEnabled[i]) {
+                            SettingsListDropdown(
+                                colors = settingsTileColors(),
+                                title = { Text(stringResource(R.string.gyro_trigger_mode)) },
+                                subtitle = { Text(stringResource(R.string.gyro_trigger_mode_subtitle)) },
+                                value = if (padToggle[i]) 1 else 0,
+                                items = triggerModeLabels,
+                                onItemSelected = { padToggle[i] = it == 1 },
                             )
-                            if (triggerEnabled[i]) {
-                                SettingsListDropdown(
-                                    colors = settingsTileColors(),
-                                    title = { Text(stringResource(R.string.gyro_trigger_mode)) },
-                                    subtitle = { Text(stringResource(R.string.gyro_trigger_mode_subtitle)) },
-                                    value = if (triggerToggle[i]) 1 else 0,
-                                    items = triggerModeLabels,
-                                    onItemSelected = { triggerToggle[i] = it == 1 },
-                                )
-                            }
+                        }
+                    }
+
+                    // Gamepad buttons
+                    GYRO_TRIGGER_CANDIDATES.forEachIndexed { i, _ ->
+                        SettingsSwitch(
+                            colors = settingsTileColorsAlt(),
+                            title = { Text(candidateLabels[i]) },
+                            state = btnEnabled[i],
+                            onCheckedChange = { btnEnabled[i] = it },
+                        )
+                        if (btnEnabled[i]) {
+                            SettingsListDropdown(
+                                colors = settingsTileColors(),
+                                title = { Text(stringResource(R.string.gyro_trigger_mode)) },
+                                subtitle = { Text(stringResource(R.string.gyro_trigger_mode_subtitle)) },
+                                value = if (btnToggle[i]) 1 else 0,
+                                items = triggerModeLabels,
+                                onItemSelected = { btnToggle[i] = it == 1 },
+                            )
                         }
                     }
 

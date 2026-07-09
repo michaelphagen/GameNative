@@ -224,6 +224,8 @@ class PluviaApp : SplitCompatApplication() {
         var sharedVirtualGamepadState: com.winlator.inputcontrols.GamepadState? = null
         var inputControlsManager: InputControlsManager? = null
         var touchpadView: TouchpadView? = null
+        // Standalone gyro-aiming runtime, independent of on-screen touch controls
+        var gyroController: app.gamenative.ui.screen.xserver.GyroController? = null
         var achievementWatcher: app.gamenative.service.AchievementWatcher? = null
 
         var isOverlayPaused by mutableStateOf(false)
@@ -264,6 +266,9 @@ class PluviaApp : SplitCompatApplication() {
             sharedVirtualGamepadState = null
             inputControlsManager = null
             touchpadView = null
+            runCatching { gyroController?.cleanup() }
+                .onFailure { Timber.e(it, "shutdownEnvironment: gyroController.cleanup") }
+            gyroController = null
             achievementWatcher = null
             ActiveGameRegistry.clear()
             SteamService.keepAlive = false

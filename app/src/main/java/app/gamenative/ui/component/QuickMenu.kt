@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Settings
@@ -112,6 +113,7 @@ object QuickMenuAction {
     const val DISABLE_MOUSE = 8
     const val EDIT_COVER_CONTROLS = 9
     const val GAME_AREA = 10
+    const val GYRO = 11
 }
 
 private object QuickMenuTab {
@@ -319,6 +321,14 @@ fun QuickMenu(
                 id = QuickMenuAction.EDIT_CONTROLS,
                 icon = Icons.Default.Edit,
                 labelResId = R.string.edit_controls,
+                accentColor = PluviaTheme.colors.accentPurple,
+            )
+        )
+        add(
+            QuickMenuItem(
+                id = QuickMenuAction.GYRO,
+                icon = Icons.Default.ScreenRotation,
+                labelResId = R.string.gyro_settings,
                 accentColor = PluviaTheme.colors.accentPurple,
             )
         )

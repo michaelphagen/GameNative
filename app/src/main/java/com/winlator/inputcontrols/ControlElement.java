@@ -104,11 +104,11 @@ public class ControlElement {
     private float touchpadMomentum = 0.5f;
     private float touchpadAcceleration = 0f;
     private float touchpadMinOutput = 0f;
-    // Whether touching this pad is one of the profile's gyro triggers, and how it behaves.
-    // Configured from the centralized Gyro Settings screen, not from this element's own editor.
-    private boolean touchpadGyroTrigger = false;
-    private boolean touchpadGyroTriggerToggle = false;
-    private boolean gyroTriggerToggledOn = false; // runtime latch when touchpadGyroTriggerToggle is set
+    // Whether touching this control (touchpad or stick) is one of the profile's gyro triggers,
+    // and how it behaves. Configured from the standalone Gyro Settings screen, not this editor.
+    private boolean gyroTrigger = false;
+    private boolean gyroTriggerToggle = false;
+    private boolean gyroTriggerToggledOn = false; // runtime latch when gyroTriggerToggle is set
     private float touchpadAccumX, touchpadAccumY;
     private float touchpadOutX, touchpadOutY; // smoothed touch-only output, kept pure for glide decay continuity
     private float touchpadSendX, touchpadSendY; // touchpadOutX/Y with the precision floor applied, for this tick
@@ -121,6 +121,9 @@ public class ControlElement {
     private void reset() {
         setBinding(Binding.NONE);
         scroller = null;
+        gyroTrigger = false;
+        gyroTriggerToggle = false;
+        gyroTriggerToggledOn = false;
 
         if (type == Type.STICK) {
             bindings[0] = Binding.GAMEPAD_LEFT_THUMB_UP;
@@ -150,9 +153,6 @@ public class ControlElement {
             touchpadMomentum = 0.5f;
             touchpadAcceleration = 0f;
             touchpadMinOutput = 0f;
-            touchpadGyroTrigger = false;
-            touchpadGyroTriggerToggle = false;
-            gyroTriggerToggledOn = false;
         }
         else if (type == Type.RANGE_BUTTON) {
             scroller = new RangeScroller(inputControlsView, this);
@@ -333,28 +333,38 @@ public class ControlElement {
         this.touchpadMinOutput = Mathf.clamp(touchpadMinOutput, 0, 0.5f);
     }
 
-    public boolean isTouchpadGyroTrigger() {
-        return touchpadGyroTrigger;
+    /** Touch controls (touchpad or stick) can act as gyro triggers by being touched. */
+    public boolean canBeGyroTrigger() {
+        return type == Type.TOUCHPAD || type == Type.STICK;
     }
 
-    public void setTouchpadGyroTrigger(boolean touchpadGyroTrigger) {
-        this.touchpadGyroTrigger = touchpadGyroTrigger;
-        if (!touchpadGyroTrigger) gyroTriggerToggledOn = false;
+    public boolean isGyroTrigger() {
+        return gyroTrigger;
     }
 
-    public boolean isTouchpadGyroTriggerToggle() {
-        return touchpadGyroTriggerToggle;
+    public void setGyroTrigger(boolean gyroTrigger) {
+        this.gyroTrigger = gyroTrigger;
+        if (!gyroTrigger) gyroTriggerToggledOn = false;
     }
 
-    public void setTouchpadGyroTriggerToggle(boolean touchpadGyroTriggerToggle) {
-        this.touchpadGyroTriggerToggle = touchpadGyroTriggerToggle;
+    public boolean isGyroTriggerToggle() {
+        return gyroTriggerToggle;
+    }
+
+    public void setGyroTriggerToggle(boolean gyroTriggerToggle) {
+        this.gyroTriggerToggle = gyroTriggerToggle;
         gyroTriggerToggledOn = false;
     }
 
-    /** Whether touching this pad is currently asserting the gyro trigger (momentary or toggle). */
+    /** Flip the toggle latch when this element is first touched (called on touch-down). */
+    private void onGyroTriggerTouchDown() {
+        if (canBeGyroTrigger() && gyroTrigger && gyroTriggerToggle) gyroTriggerToggledOn = !gyroTriggerToggledOn;
+    }
+
+    /** Whether touching this control is currently asserting the gyro trigger (momentary/toggle). */
     public boolean isGyroTriggerAsserted() {
-        if (type != Type.TOUCHPAD || !touchpadGyroTrigger) return false;
-        return touchpadGyroTriggerToggle ? gyroTriggerToggledOn : touchpadPointerDown;
+        if (!canBeGyroTrigger() || !gyroTrigger) return false;
+        return gyroTriggerToggle ? gyroTriggerToggledOn : (currentPointerId != -1);
     }
 
     public float getScale() {
@@ -812,8 +822,12 @@ public class ControlElement {
                 elementJSONObject.put("touchpadMomentum", (double) touchpadMomentum);
                 elementJSONObject.put("touchpadAcceleration", (double) touchpadAcceleration);
                 elementJSONObject.put("touchpadMinOutput", (double) touchpadMinOutput);
-                if (touchpadGyroTrigger) elementJSONObject.put("touchpadGyroTrigger", true);
-                if (touchpadGyroTriggerToggle) elementJSONObject.put("touchpadGyroTriggerToggle", true);
+            }
+
+            // Gyro trigger applies to any touch control that can be one (touchpad or stick)
+            if (gyroTrigger) {
+                elementJSONObject.put("gyroTrigger", true);
+                if (gyroTriggerToggle) elementJSONObject.put("gyroTriggerToggle", true);
             }
 
             return elementJSONObject;
@@ -835,6 +849,7 @@ public class ControlElement {
     public boolean handleTouchDown(int pointerId, float x, float y) {
         if (currentPointerId == -1 && containsPoint(x, y)) {
             currentPointerId = pointerId;
+            onGyroTriggerTouchDown();
             if (type == Type.BUTTON) {
                 if (isKeepButtonPressedAfterMinTime()) touchTime = System.currentTimeMillis();
                 if (!toggleSwitch || !selected) {
@@ -1052,6 +1067,7 @@ public class ControlElement {
     public boolean handleScreenWideTouchDown(int pointerId, float x, float y) {
         if (type != Type.TOUCHPAD || !touchpadScreenWide || currentPointerId != -1) return false;
         currentPointerId = pointerId;
+        onGyroTriggerTouchDown();
         beginTouchpadTouch(x, y);
         return true;
     }
@@ -1060,7 +1076,6 @@ public class ControlElement {
         if (currentPosition == null) currentPosition = new PointF();
         currentPosition.set(x, y);
         touchpadPointerDown = true;
-        if (touchpadGyroTrigger && touchpadGyroTriggerToggle) gyroTriggerToggledOn = !gyroTriggerToggledOn;
         inputControlsView.notifyTouchpadActivity();
     }
 
