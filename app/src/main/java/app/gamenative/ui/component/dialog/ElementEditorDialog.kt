@@ -159,15 +159,11 @@ fun ElementEditorDialog(
     var currentTouchpadMomentum by remember { mutableFloatStateOf(element.touchpadMomentum) }
     var currentTouchpadAcceleration by remember { mutableFloatStateOf(element.touchpadAcceleration) }
     var currentTouchpadMinOutput by remember { mutableFloatStateOf(element.touchpadMinOutput) }
-    var currentTouchpadGyro by remember { mutableStateOf(element.isTouchpadGyro) }
-    var currentTouchpadGyroSensitivity by remember { mutableFloatStateOf(element.touchpadGyroSensitivity) }
     val originalTouchpadSensitivity by remember { mutableFloatStateOf(element.touchpadSensitivity) }
     val originalTouchpadScreenWide by remember { mutableStateOf(element.isTouchpadScreenWide) }
     val originalTouchpadMomentum by remember { mutableFloatStateOf(element.touchpadMomentum) }
     val originalTouchpadAcceleration by remember { mutableFloatStateOf(element.touchpadAcceleration) }
     val originalTouchpadMinOutput by remember { mutableFloatStateOf(element.touchpadMinOutput) }
-    val originalTouchpadGyro by remember { mutableStateOf(element.isTouchpadGyro) }
-    val originalTouchpadGyroSensitivity by remember { mutableFloatStateOf(element.touchpadGyroSensitivity) }
 
     // Range button settings state
     val rangeTypes = listOf(
@@ -319,8 +315,6 @@ fun ElementEditorDialog(
                                 element.touchpadMomentum = currentTouchpadMomentum
                                 element.touchpadAcceleration = currentTouchpadAcceleration
                                 element.touchpadMinOutput = currentTouchpadMinOutput
-                                element.isTouchpadGyro = currentTouchpadGyro
-                                element.touchpadGyroSensitivity = currentTouchpadGyroSensitivity
                             }
 
                     // Save range button properties
@@ -937,47 +931,8 @@ fun ElementEditorDialog(
                             )
                         }
 
-                        // Gyro while touching switch
-                        SettingsSwitch(
-                            colors = settingsTileColorsAlt(),
-                            title = { Text(stringResource(R.string.touchpad_gyro)) },
-                            subtitle = { Text(stringResource(R.string.touchpad_gyro_subtitle)) },
-                            state = currentTouchpadGyro,
-                            onCheckedChange = {
-                                currentTouchpadGyro = it
-                                hasUnsavedChanges = true
-                            },
-                        )
-
-                        // Gyro sensitivity slider
-                        SettingsMenuLink(
-                            colors = settingsTileColors(),
-                            title = { Text(stringResource(R.string.touchpad_gyro_sensitivity)) },
-                            subtitle = { Text(stringResource(R.string.touchpad_gyro_sensitivity_subtitle)) },
-                            onClick = {}
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Slider(
-                                value = currentTouchpadGyroSensitivity,
-                                onValueChange = {
-                                    currentTouchpadGyroSensitivity = it
-                                    hasUnsavedChanges = true
-                                },
-                                valueRange = 0.1f..10.0f,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = String.format(Locale.US, "%.1fx", currentTouchpadGyroSensitivity),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        // Gyro aiming is configured in its own Gyro Settings screen
+                        // (toolbar → Gyro), including which touchpads trigger it.
 
                         // Screen-wide switch
                         SettingsSwitch(
@@ -1102,8 +1057,6 @@ fun ElementEditorDialog(
                         element.touchpadMomentum = currentTouchpadMomentum
                         element.touchpadAcceleration = currentTouchpadAcceleration
                         element.touchpadMinOutput = currentTouchpadMinOutput
-                        element.isTouchpadGyro = currentTouchpadGyro
-                        element.touchpadGyroSensitivity = currentTouchpadGyroSensitivity
                     }
                     // Save range button properties
                     if (types[currentTypeIndex] == ControlElement.Type.RANGE_BUTTON) {
@@ -1147,8 +1100,6 @@ fun ElementEditorDialog(
                     element.touchpadMomentum = originalTouchpadMomentum
                     element.touchpadAcceleration = originalTouchpadAcceleration
                     element.touchpadMinOutput = originalTouchpadMinOutput
-                    element.isTouchpadGyro = originalTouchpadGyro
-                    element.touchpadGyroSensitivity = originalTouchpadGyroSensitivity
                     // Restore original range button properties
                     element.setRange(originalRange)
                     element.setOrientation(originalOrientation.toByte())

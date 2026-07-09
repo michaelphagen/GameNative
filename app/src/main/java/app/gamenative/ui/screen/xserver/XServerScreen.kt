@@ -470,6 +470,7 @@ fun XServerScreen(
     var elementPositionsSnapshot by remember { mutableStateOf<Map<com.winlator.inputcontrols.ControlElement, Pair<Int, Int>>>(emptyMap()) }
     var showElementEditor by remember { mutableStateOf(false) }
     var elementToEdit by remember { mutableStateOf<com.winlator.inputcontrols.ControlElement?>(null) }
+    var showGyroSettings by remember { mutableStateOf(false) }
     var showPhysicalControllerDialog by remember { mutableStateOf(false) }
     var showPlayingBlockedDialog by rememberSaveable { mutableStateOf(false) }
     var playingBlockedRemoteName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -2548,6 +2549,9 @@ fun XServerScreen(
                 onDelete = {
                     activeEditView()?.removeElement()
                 },
+                onGyro = {
+                    showGyroSettings = true
+                },
                 onSave = {
                     // In a unified session the editor saves both screens and tears down
                     if (foldable.unifiedActive) {
@@ -2771,6 +2775,15 @@ fun XServerScreen(
         )
     }
 
+    // Gyro Settings Dialog
+    if (showGyroSettings && activeEditView() != null) {
+        app.gamenative.ui.component.dialog.GyroSettingsDialog(
+            view = activeEditView()!!,
+            onDismiss = { showGyroSettings = false },
+            onSave = { showGyroSettings = false },
+        )
+    }
+
     // Touch Gesture Settings Dialog
     if (showTouchGestureDialog) {
         app.gamenative.ui.component.dialog.TouchGestureSettingsDialog(
@@ -2923,6 +2936,7 @@ private fun EditModeToolbar(
     onAdd: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onGyro: () -> Unit,
     onSave: () -> Unit,
     onClose: () -> Unit,
     onDuplicate: (Int) -> Unit
@@ -2985,6 +2999,13 @@ private fun EditModeToolbar(
                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = androidx.compose.ui.graphics.Color.White)
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(stringResource(R.string.delete), color = androidx.compose.ui.graphics.Color.White)
+            }
+
+            // Gyro settings button
+            TextButton(onClick = onGyro) {
+                Icon(Icons.Default.ScreenRotation, contentDescription = "Gyro", tint = androidx.compose.ui.graphics.Color.White)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(stringResource(R.string.gyro_settings), color = androidx.compose.ui.graphics.Color.White)
             }
 
             // Duplicate button with dropdown

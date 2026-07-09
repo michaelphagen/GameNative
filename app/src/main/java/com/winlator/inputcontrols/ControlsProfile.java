@@ -31,6 +31,15 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
     private final Context context;
     private GamepadState gamepadState;
 
+    // Profile-level gyro aiming settings, edited from the standalone Gyro Settings screen.
+    private boolean gyroEnabled = false;
+    private boolean gyroOutputLeftStick = false; // false -> right stick (camera), true -> left stick
+    private float gyroSensitivity = 3.0f;
+    private GyroInput.Axis gyroAxisX = GyroInput.Axis.YAW;
+    private GyroInput.Axis gyroAxisY = GyroInput.Axis.PITCH;
+    private boolean gyroInvertX = false;
+    private boolean gyroInvertY = false;
+
     public ControlsProfile(Context context, int id) {
         this.context = context;
         this.id = id;
@@ -63,6 +72,62 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
     public GamepadState getGamepadState() {
         if (gamepadState == null) gamepadState = new GamepadState();
         return gamepadState;
+    }
+
+    public boolean isGyroEnabled() {
+        return gyroEnabled;
+    }
+
+    public void setGyroEnabled(boolean gyroEnabled) {
+        this.gyroEnabled = gyroEnabled;
+    }
+
+    public boolean isGyroOutputLeftStick() {
+        return gyroOutputLeftStick;
+    }
+
+    public void setGyroOutputLeftStick(boolean gyroOutputLeftStick) {
+        this.gyroOutputLeftStick = gyroOutputLeftStick;
+    }
+
+    public float getGyroSensitivity() {
+        return gyroSensitivity;
+    }
+
+    public void setGyroSensitivity(float gyroSensitivity) {
+        this.gyroSensitivity = gyroSensitivity;
+    }
+
+    public GyroInput.Axis getGyroAxisX() {
+        return gyroAxisX;
+    }
+
+    public void setGyroAxisX(GyroInput.Axis gyroAxisX) {
+        if (gyroAxisX != null) this.gyroAxisX = gyroAxisX;
+    }
+
+    public GyroInput.Axis getGyroAxisY() {
+        return gyroAxisY;
+    }
+
+    public void setGyroAxisY(GyroInput.Axis gyroAxisY) {
+        if (gyroAxisY != null) this.gyroAxisY = gyroAxisY;
+    }
+
+    public boolean isGyroInvertX() {
+        return gyroInvertX;
+    }
+
+    public void setGyroInvertX(boolean gyroInvertX) {
+        this.gyroInvertX = gyroInvertX;
+    }
+
+    public boolean isGyroInvertY() {
+        return gyroInvertY;
+    }
+
+    public void setGyroInvertY(boolean gyroInvertY) {
+        this.gyroInvertY = gyroInvertY;
     }
 
     /**
@@ -142,6 +207,25 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
             data.put("id", id);
             data.put("name", name);
             data.put("cursorSpeed", Float.valueOf(cursorSpeed));
+
+            // Profile-level gyro settings. Only trust the in-memory fields once the profile has
+            // been fully loaded; otherwise preserve whatever the file already holds so a
+            // list-only load (which never populates these) can't clobber saved values.
+            if (elementsLoaded) {
+                JSONObject gyroJSONObject = new JSONObject();
+                gyroJSONObject.put("enabled", gyroEnabled);
+                gyroJSONObject.put("outputLeftStick", gyroOutputLeftStick);
+                gyroJSONObject.put("sensitivity", (double) gyroSensitivity);
+                gyroJSONObject.put("axisX", gyroAxisX.name());
+                gyroJSONObject.put("axisY", gyroAxisY.name());
+                gyroJSONObject.put("invertX", gyroInvertX);
+                gyroJSONObject.put("invertY", gyroInvertY);
+                data.put("gyro", gyroJSONObject);
+            }
+            else if (file.isFile()) {
+                JSONObject profileJSONObject = new JSONObject(FileUtils.readString(file));
+                if (profileJSONObject.has("gyro")) data.put("gyro", profileJSONObject.getJSONObject("gyro"));
+            }
 
             JSONArray elementsJSONArray = new JSONArray();
             if (!elementsLoaded && file.isFile()) {
@@ -262,6 +346,7 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
 
         try {
             JSONObject profileJSONObject = new JSONObject(FileUtils.readString(file));
+            loadGyroSettings(profileJSONObject);
             JSONArray elementsJSONArray = profileJSONObject.getJSONArray("elements");
             for (int i = 0; i < elementsJSONArray.length(); i++) {
                 JSONObject elementJSONObject = elementsJSONArray.getJSONObject(i);
@@ -293,8 +378,8 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
                 if (elementJSONObject.has("touchpadMomentum")) element.setTouchpadMomentum((float)elementJSONObject.getDouble("touchpadMomentum"));
                 if (elementJSONObject.has("touchpadAcceleration")) element.setTouchpadAcceleration((float)elementJSONObject.getDouble("touchpadAcceleration"));
                 if (elementJSONObject.has("touchpadMinOutput")) element.setTouchpadMinOutput((float)elementJSONObject.getDouble("touchpadMinOutput"));
-                if (elementJSONObject.has("touchpadGyro")) element.setTouchpadGyro(elementJSONObject.getBoolean("touchpadGyro"));
-                if (elementJSONObject.has("touchpadGyroSensitivity")) element.setTouchpadGyroSensitivity((float)elementJSONObject.getDouble("touchpadGyroSensitivity"));
+                if (elementJSONObject.has("touchpadGyroTrigger")) element.setTouchpadGyroTrigger(elementJSONObject.getBoolean("touchpadGyroTrigger"));
+                if (elementJSONObject.has("touchpadGyroTriggerToggle")) element.setTouchpadGyroTriggerToggle(elementJSONObject.getBoolean("touchpadGyroTriggerToggle"));
 
                 boolean hasGamepadBinding = true;
                 JSONArray bindingsJSONArray = elementJSONObject.getJSONArray("bindings");
@@ -314,6 +399,33 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
         catch (JSONException e) {
             Log.e("ControlsProfile", "Failed to load elements for profile: " + name + " (ID: " + id + ")", e);
             e.printStackTrace();
+        }
+    }
+
+    private void loadGyroSettings(JSONObject profileJSONObject) {
+        // Reset to defaults first so a reload of a profile without a gyro block clears stale state
+        gyroEnabled = false;
+        gyroOutputLeftStick = false;
+        gyroSensitivity = 3.0f;
+        gyroAxisX = GyroInput.Axis.YAW;
+        gyroAxisY = GyroInput.Axis.PITCH;
+        gyroInvertX = false;
+        gyroInvertY = false;
+        if (!profileJSONObject.has("gyro")) return;
+        try {
+            JSONObject gyro = profileJSONObject.getJSONObject("gyro");
+            gyroEnabled = gyro.optBoolean("enabled", false);
+            gyroOutputLeftStick = gyro.optBoolean("outputLeftStick", false);
+            gyroSensitivity = (float) gyro.optDouble("sensitivity", 3.0);
+            gyroInvertX = gyro.optBoolean("invertX", false);
+            gyroInvertY = gyro.optBoolean("invertY", false);
+            try { gyroAxisX = GyroInput.Axis.valueOf(gyro.optString("axisX", "YAW")); }
+            catch (IllegalArgumentException e) { gyroAxisX = GyroInput.Axis.YAW; }
+            try { gyroAxisY = GyroInput.Axis.valueOf(gyro.optString("axisY", "PITCH")); }
+            catch (IllegalArgumentException e) { gyroAxisY = GyroInput.Axis.PITCH; }
+        }
+        catch (JSONException e) {
+            Log.w("ControlsProfile", "Failed to parse gyro settings for profile: " + name, e);
         }
     }
 }
