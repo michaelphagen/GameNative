@@ -1,5 +1,6 @@
 package app.gamenative.ui.component.dialog
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,20 +24,15 @@ fun InlineDialogScrim(
     dismissOnClickOutside: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    BackHandler(onBack = onDismissRequest)
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0x99000000))
-            .then(
-                if (dismissOnClickOutside) {
-                    Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onDismissRequest,
-                    )
-                } else {
-                    Modifier
-                },
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { if (dismissOnClickOutside) onDismissRequest() },
             ),
         contentAlignment = Alignment.Center,
     ) {

@@ -111,7 +111,6 @@ object QuickMenuAction {
     const val PERFORMANCE_HUD = 6
     const val TOUCHSCREEN_MODE = 7
     const val DISABLE_MOUSE = 8
-    const val EDIT_COVER_CONTROLS = 9
     const val GAME_AREA = 10
     const val GYRO = 11
 }

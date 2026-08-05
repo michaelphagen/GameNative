@@ -79,7 +79,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 import app.gamenative.PluviaApp
 import app.gamenative.PrefManager
 import app.gamenative.SteamBootstrap
@@ -191,7 +190,6 @@ import com.winlator.xserver.XServer
 import com.winlator.xserver.extensions.PresentExtension
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -2802,10 +2800,12 @@ fun XServerScreen(
     if (showGyroSettings) {
         val gyroProfile = PluviaApp.inputControlsView?.profile
             ?: PluviaApp.gyroController?.activeProfile
-        if (gyroProfile != null) {
-            gyroProfile.ensureGyroSettingsLoaded()
-            if (PluviaApp.gyroController?.activeProfile !== gyroProfile) {
-                PluviaApp.gyroController?.setProfile(gyroProfile)
+        LaunchedEffect(gyroProfile) {
+            if (gyroProfile != null) {
+                gyroProfile.ensureGyroSettingsLoaded()
+                if (PluviaApp.gyroController?.activeProfile !== gyroProfile) {
+                    PluviaApp.gyroController?.setProfile(gyroProfile)
+                }
             }
         }
         if (gyroProfile != null) {

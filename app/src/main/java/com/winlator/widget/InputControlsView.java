@@ -237,7 +237,7 @@ public class InputControlsView extends View {
         p.setColor(0xFFFFFFFF);
         p.setTextAlign(Paint.Align.CENTER);
         p.setTextSize(h * 0.11f);
-        canvas.drawText("🔒", w / 2f, h * 0.44f, p); // 🔒
+        canvas.drawText("🔒", w / 2f, h * 0.44f, p);
         p.setTextSize(h * 0.045f);
         canvas.drawText(editLockMessage, w / 2f, h * 0.54f, p);
 

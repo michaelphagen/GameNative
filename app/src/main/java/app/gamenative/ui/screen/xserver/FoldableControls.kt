@@ -257,13 +257,6 @@ fun detachCoverEditor(state: FoldableControlsState) {
     state.coverEditorHost = null
 }
 
-/**
- * Sizes and anchors the game area within its parent, per the container's gameAreaAnchor
- * ("full"/"left"/"right") and gameAreaWidth (percent) extras. Only active while unfolded with
- * foldable support enabled; otherwise restores fullscreen. The touchpad view is kept congruent
- * with the game host so touch-to-game coordinate mapping stays correct (TouchpadView rebuilds
- * its transform in onSizeChanged).
- */
 /** Max inset per edge (percent); leaves at least ~30% of each dimension for the game. */
 const val GAME_AREA_MAX_INSET = 70
 
@@ -287,6 +280,12 @@ private fun layoutCoverControls(wrapper: FrameLayout, icView: View, gamePortrait
     icView.layoutParams = FrameLayout.LayoutParams(targetW, targetH, Gravity.CENTER)
 }
 
+/**
+ * Sizes the game area within its parent using the container's per-edge insets
+ * (gameAreaInsetLeft/Right/Top/Bottom, each a percent). Only active while unfolded with foldable
+ * support enabled; otherwise restores fullscreen. The touchpad view is kept congruent with the
+ * game host so touch-to-game coordinate mapping stays correct.
+ */
 fun applyGameAreaLayout(state: FoldableControlsState, container: Container) {
     val host = PluviaApp.gameHostView ?: return
     val parent = host.parent as? ViewGroup
