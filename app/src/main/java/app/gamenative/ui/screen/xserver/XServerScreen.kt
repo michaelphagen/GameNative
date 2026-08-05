@@ -355,6 +355,10 @@ fun XServerScreen(
     }
     val activity = remember(context) { BrightnessManager.findActivity(context) }
 
+    // Foldable posture + cover-editing state (kept in a holder outside this enormous
+    // composable — adding locals here risks ART verifier register limits, see FoldableControls)
+    val foldable = rememberFoldableControlsState()
+
     DisposableEffect(activity) {
         if (activity == null) return@DisposableEffect onDispose { }
 
@@ -390,12 +394,7 @@ fun XServerScreen(
         PluviaApp.setActiveSuspendPolicy(suspendPolicy)
     }
 
-    PluviaApp.events.emit(
-        AndroidEvent.SetAllowedOrientation(
-            if (container.isPortraitMode) EnumSet.of(Orientation.PORTRAIT)
-            else PrefManager.allowedOrientation,
-        ),
-    )
+    PluviaApp.events.emit(AndroidEvent.SetAllowedOrientation(currentAllowedOrientations(foldable, container)))
 
     val xServerState = rememberSaveable(stateSaver = XServerState.Saver) {
         mutableStateOf(
@@ -450,24 +449,6 @@ fun XServerScreen(
     val keyboardEscMenuHandler = remember(scope) { KeyboardEscMenuHandler(scope) }
 
     val coverScreenManager = remember(activity) { activity?.let { CoverScreenManager(it) } }
-    LaunchedEffect(coverScreenManager) {
-        if (coverScreenManager != null && PrefManager.coverScreenShoulderButtons) {
-            // Folding/unfolding recreates the activity (configChanges doesn't cover
-            // smallestScreenSize/screenLayout) and suspends the game in between. Scope the
-            // cover session strictly to the RESUMED state so it is torn down before every
-            // fold transition and freshly re-presented once the activity settles.
-            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                try {
-                    coverScreenManager.start(this) { binding, pressed ->
-                        PluviaApp.inputControlsView?.handleExternalInputEvent(binding, pressed)
-                    }
-                    awaitCancellation()
-                } finally {
-                    coverScreenManager.stop()
-                }
-            }
-        }
-    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -515,6 +496,32 @@ fun XServerScreen(
     var quickMenuWineProcessesLoading by remember { mutableStateOf(false) }
     var hasPhysicalController by remember { mutableStateOf(false) }
     var keepPausedForEditor by remember { mutableStateOf(false) }
+
+    /** The view edit actions target: the cover presentation view during cover editing. */
+    fun activeEditView(): InputControlsView? =
+        if (foldable.editingCoverProfile) foldable.coverInputControlsView else PluviaApp.inputControlsView
+
+    FoldableControlsEffects(
+        state = foldable,
+        activity = activity,
+        lifecycleOwner = lifecycleOwner,
+        coverScreenManager = coverScreenManager,
+        buildCoverContent = { ctx -> buildCoverScreenContent(foldable, container, xServerView?.getxServer(), ctx) },
+        onFoldStateChanged = { unfolded ->
+            if (!unfolded && foldable.editingCoverProfile) {
+                // The cover session dies when folding; abort the edit so the toolbar closes
+                foldable.editingCoverProfile = false
+                isEditMode = false
+                elementPositionsSnapshot = emptyMap()
+                foldable.coverInputControlsView?.setEditMode(false)
+                keepPausedForEditor = false
+            }
+            PluviaApp.events.emit(AndroidEvent.SetAllowedOrientation(currentAllowedOrientations(foldable, container)))
+            applyOverlayProfileForFoldState(foldable, container, isEditMode)
+            applyGameAreaLayout(foldable, container)
+        },
+    )
+    var showGameAreaDialog by remember { mutableStateOf(false) }
     var hasPhysicalKeyboard by remember { mutableStateOf(false) }
     var hasPhysicalMouse by remember { mutableStateOf(false) }
     var usingScreenMirror by remember { mutableStateOf(false) }
@@ -1101,11 +1108,14 @@ fun XServerScreen(
                 if (PrefManager.usageAnalyticsEnabled) PostHog.capture(event = "edit_controls_in_game")
                 keepPausedForEditor = true
 
-                // Get or create profile for this container
+                // Get or create profile for this container. On foldables each fold state has
+                // its own profile — editing always targets the mode the device is in now.
                 val manager = PluviaApp.inputControlsManager ?: InputControlsManager(context)
                 val allProfiles = manager.getProfiles(false)
 
-                val profileIdStr = container.getExtra("profileId", "0")
+                val editingFoldedLayout = foldable.deviceIsFoldable && !foldable.isDeviceUnfolded
+                val profileExtraKey = if (editingFoldedLayout) "profileIdFolded" else "profileId"
+                val profileIdStr = container.getExtra(profileExtraKey, "0")
                 val profileId = profileIdStr.toIntOrNull() ?: 0
 
                 var activeProfile = if (profileId != 0) {
@@ -1116,22 +1126,25 @@ fun XServerScreen(
 
                 // If no custom profile exists, create one automatically
                 if (activeProfile == null) {
-                    val sourceProfile = manager.getProfile(0)
+                    // The folded layout starts as a copy of the unfolded/base profile if set
+                    val baseProfileId = container.getExtra("profileId", "0").toIntOrNull() ?: 0
+                    val sourceProfile = (if (editingFoldedLayout && baseProfileId != 0) manager.getProfile(baseProfileId) else null)
+                        ?: manager.getProfile(0)
                         ?: allProfiles.firstOrNull { it.id == 2 }
                         ?: allProfiles.firstOrNull()
 
                     if (sourceProfile != null) {
                         try {
-                            // Create game-specific profile by duplicating Profile 0
+                            // Create game-specific profile by duplicating the source
                             activeProfile = manager.duplicateProfile(sourceProfile)
 
                             // Rename to game name
                             val gameName = currentAppInfo?.name ?: container.name
-                            activeProfile.setName("$gameName - Controls")
+                            activeProfile.setName(if (editingFoldedLayout) "$gameName - Controls (Folded)" else "$gameName - Controls")
                             activeProfile.save()
 
                             // Associate with container using extraData and save
-                            container.putExtra("profileId", activeProfile.id.toString())
+                            container.putExtra(profileExtraKey, activeProfile.id.toString())
                             container.saveData()
 
                             // Apply the new profile to InputControlsView
@@ -1141,6 +1154,11 @@ fun XServerScreen(
                             // Fallback to existing profile
                             activeProfile = sourceProfile
                         }
+                    }
+                } else {
+                    // Ensure the fold-state profile is the one on screen before editing
+                    if (PluviaApp.inputControlsView?.profile?.id != activeProfile.id) {
+                        PluviaApp.inputControlsView?.setProfile(activeProfile)
                     }
                 }
 
@@ -1170,6 +1188,41 @@ fun XServerScreen(
                         areControlsVisible = true
                     }
                 }
+                true
+            }
+
+            QuickMenuAction.EDIT_COVER_CONTROLS -> {
+                // The cover layout is edited directly on the cover presentation view, so the
+                // buttons are dragged on the physical panel they live on. The edit toolbar
+                // stays on the inner screen. The profile itself is auto-created (with the
+                // default layout) when the cover session first presents.
+                keepPausedForEditor = true
+                if (foldable.coverInputControlsView == null) coverScreenManager?.refreshContent()
+                val editView = foldable.coverInputControlsView
+                val coverProfile = editView?.profile
+                if (editView != null && coverProfile != null) {
+                    foldable.editingCoverProfile = true
+                    isEditMode = true
+                    editView.setEditMode(true)
+                    editView.post {
+                        coverProfile.loadElements(editView)
+                        // Snapshot for cancel, after elements have valid positions
+                        val snapshot = mutableMapOf<com.winlator.inputcontrols.ControlElement, Pair<Int, Int>>()
+                        coverProfile.elements.forEach { element ->
+                            snapshot[element] = Pair(element.x.toInt(), element.y.toInt())
+                        }
+                        elementPositionsSnapshot = snapshot
+                        editView.invalidate()
+                    }
+                } else {
+                    Timber.w("Cover screen session not active; cannot edit cover layout")
+                    keepPausedForEditor = false
+                }
+                true
+            }
+
+            QuickMenuAction.GAME_AREA -> {
+                showGameAreaDialog = true
                 true
             }
 
@@ -2141,6 +2194,8 @@ fun XServerScreen(
             }
             frameLayout.addView(gameHost)
             gameHost.addView(xServerView as View)
+            PluviaApp.gameHostView = gameHost
+            gameHost.post { applyGameAreaLayout(foldable, container) }
 
             PluviaApp.inputControlsManager = InputControlsManager(context)
 
@@ -2159,8 +2214,15 @@ fun XServerScreen(
                 PrefManager.init(context)
 
                 if (profiles.isNotEmpty()) {
-                    // Check if container has a custom profile associated
-                    val profileIdStr = container.getExtra("profileId", "0")
+                    // Check if container has a custom profile associated (fold-state aware:
+                    // folded uses profileIdFolded when set, falling back to the base profile)
+                    var profileIdStr = container.getExtra(
+                        if (foldable.deviceIsFoldable && !foldable.isDeviceUnfolded) "profileIdFolded" else "profileId",
+                        "0",
+                    )
+                    if ((profileIdStr.toIntOrNull() ?: 0) == 0) {
+                        profileIdStr = container.getExtra("profileId", "0")
+                    }
                     val profileId = profileIdStr.toIntOrNull() ?: 0
                     Timber.d("=== Profile Loading Start ===")
                     Timber.d("Container: ${container.name}, ProfileID from extra: $profileId")
@@ -2210,6 +2272,13 @@ fun XServerScreen(
                 setContainerShooterMode(container.isShooterMode)
             }
             PluviaApp.inputControlsView = icView
+            // Establish the canonical shared gamepad state from the inner overlay's profile so
+            // the cover screen merges into the same state (see PluviaApp.sharedVirtualGamepadState)
+            icView.profile?.let { p ->
+                val shared = p.gamepadState
+                PluviaApp.sharedVirtualGamepadState = shared
+                icView.setSharedGamepadState(shared)
+            }
 
             // Wire SHOW_KEYBOARD binding callback for overlay control buttons
             icView.setShowKeyboardCallback {
@@ -2421,40 +2490,45 @@ fun XServerScreen(
         }
 
         // Floating toolbar for edit mode (always visible in edit mode)
-        if (isEditMode && areControlsVisible) {
+        if (isEditMode && (areControlsVisible || foldable.editingCoverProfile)) {
             EditModeToolbar(
                 onAdd = {
-                    if (PluviaApp.inputControlsView?.addElement() == true) {
-                        // Element was added, refresh the view
-                        PluviaApp.inputControlsView?.invalidate()
+                    activeEditView()?.let { editView ->
+                        if (editView.addElement()) {
+                            // Element was added, refresh the view
+                            editView.invalidate()
+                        }
                     }
                 },
                 onEdit = {
-                    val selectedElement = PluviaApp.inputControlsView?.getSelectedElement()
+                    val selectedElement = activeEditView()?.getSelectedElement()
                     if (selectedElement != null) {
                         elementToEdit = selectedElement
                         showElementEditor = true
                     }
                 },
                 onDelete = {
-                    PluviaApp.inputControlsView?.removeElement()
+                    activeEditView()?.removeElement()
                 },
                 onSave = {
+                    val editView = activeEditView()
                     // Save profile changes
-                    PluviaApp.inputControlsView?.profile?.save()
+                    editView?.profile?.save()
                     // Clear snapshot since changes were accepted
                     elementPositionsSnapshot = emptyMap()
                     // Exit edit mode
                     isEditMode = false
-                    PluviaApp.inputControlsView?.setEditMode(false)
+                    foldable.editingCoverProfile = false
+                    editView?.setEditMode(false)
                     // Force redraw on next frame to ensure grid is removed
-                    PluviaApp.inputControlsView?.post {
-                        PluviaApp.inputControlsView?.invalidate()
+                    editView?.post {
+                        editView.invalidate()
                     }
                     keepPausedForEditor = false
                     resumeIfAllowedAfterOverlay()
                 },
                 onClose = {
+                    val editView = activeEditView()
                     // Restore element positions from snapshot (cancel behavior)
                     if (elementPositionsSnapshot.isNotEmpty()) {
                         elementPositionsSnapshot.forEach { (element, position) ->
@@ -2466,12 +2540,13 @@ fun XServerScreen(
 
                     // Exit edit mode without saving
                     isEditMode = false
-                    PluviaApp.inputControlsView?.setEditMode(false)
+                    foldable.editingCoverProfile = false
+                    editView?.setEditMode(false)
                     // Force redraw on next frame to ensure grid is removed
-                    PluviaApp.inputControlsView?.post {
-                        PluviaApp.inputControlsView?.profile?.loadElements(PluviaApp.inputControlsView)
-                        PluviaApp.inputControlsView?.profile?.save()
-                        PluviaApp.inputControlsView?.invalidate()
+                    editView?.post {
+                        editView.profile?.loadElements(editView)
+                        editView.profile?.save()
+                        editView.invalidate()
                     }
                     keepPausedForEditor = false
                     resumeIfAllowedAfterOverlay()
@@ -2479,10 +2554,10 @@ fun XServerScreen(
                 onDuplicate = { id ->
                     val manager = PluviaApp.inputControlsManager
                     val profile = manager?.getProfile(id)
-                    val currentProfile = PluviaApp.inputControlsView?.profile
+                    val currentProfile = activeEditView()?.profile
                     if (profile != null && currentProfile != null) {
                         // Wait for view to be laid out before loading elements
-                        PluviaApp.inputControlsView?.let { icView ->
+                        activeEditView()?.let { icView ->
                             icView.post {
                                 // Load Profile 0 elements (with valid dimensions)
                                 profile.loadElements(icView)
@@ -2562,6 +2637,8 @@ fun XServerScreen(
             onFpsLimiterEnabledChanged = ::applyFpsLimiterEnabled,
             onFpsLimiterChanged = ::applyFpsLimiterTarget,
             hasPhysicalController = hasPhysicalController,
+            showEditCoverControls = foldable.deviceIsFoldable && foldable.isDeviceUnfolded,
+            showGameAreaOption = foldable.deviceIsFoldable && foldable.isDeviceUnfolded,
             isTouchscreenModeActive = isTouchscreenModeActive,
             onTouchGestureSettingsClick = { showTouchGestureDialog = true },
             activeToggleIds = buildSet {
@@ -2623,11 +2700,20 @@ fun XServerScreen(
         }
     }
 
+    // Game area move/resize dialog (foldables, unfolded)
+    if (showGameAreaDialog) {
+        GameAreaDialog(
+            state = foldable,
+            container = container,
+            onDismiss = { showGameAreaDialog = false },
+        )
+    }
+
     // Element Editor Dialog
-    if (showElementEditor && elementToEdit != null && PluviaApp.inputControlsView != null) {
+    if (showElementEditor && elementToEdit != null && activeEditView() != null) {
         app.gamenative.ui.component.dialog.ElementEditorDialog(
             element = elementToEdit!!,
-            view = PluviaApp.inputControlsView!!,
+            view = activeEditView()!!,
             onDismiss = {
                 showElementEditor = false
                 // Keep edit mode active so user can edit other elements

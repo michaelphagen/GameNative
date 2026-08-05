@@ -726,12 +726,13 @@ object PrefManager {
             setPref(DISABLE_MOUSE_INPUT, value)
         }
 
-    // Show L1/L2/L3/R1/R2/R3 on the cover screen of foldable devices during games
-    private val COVER_SCREEN_SHOULDER_BUTTONS = booleanPreferencesKey("cover_screen_shoulder_buttons")
-    var coverScreenShoulderButtons: Boolean
-        get() = getPref(COVER_SCREEN_SHOULDER_BUTTONS, false)
+    // Master toggle for foldable features: cover screen controls, per-fold-state control
+    // layouts, per-fold-state rotation locks, and game area positioning
+    private val FOLDABLE_SUPPORT_ENABLED = booleanPreferencesKey("foldable_support_enabled")
+    var foldableSupportEnabled: Boolean
+        get() = getPref(FOLDABLE_SUPPORT_ENABLED, false)
         set(value) {
-            setPref(COVER_SCREEN_SHOULDER_BUTTONS, value)
+            setPref(FOLDABLE_SUPPORT_ENABLED, value)
         }
 
     private val PORTRAIT_MODE = booleanPreferencesKey("portrait_mode")
@@ -935,6 +936,27 @@ object PrefManager {
         }
         set(value) {
             setPref(ALLOWED_ORIENTATION, Orientation.toInt(value))
+        }
+
+    // Foldables: per-fold-state orientation locks. Unset (-1) falls back to allowedOrientation.
+    private val ALLOWED_ORIENTATION_FOLDED = intPreferencesKey("allowed_orientation_folded")
+    var allowedOrientationFolded: EnumSet<Orientation>
+        get() {
+            val value = getPref(ALLOWED_ORIENTATION_FOLDED, -1)
+            return if (value == -1) allowedOrientation else Orientation.fromInt(value)
+        }
+        set(value) {
+            setPref(ALLOWED_ORIENTATION_FOLDED, Orientation.toInt(value))
+        }
+
+    private val ALLOWED_ORIENTATION_UNFOLDED = intPreferencesKey("allowed_orientation_unfolded")
+    var allowedOrientationUnfolded: EnumSet<Orientation>
+        get() {
+            val value = getPref(ALLOWED_ORIENTATION_UNFOLDED, -1)
+            return if (value == -1) allowedOrientation else Orientation.fromInt(value)
+        }
+        set(value) {
+            setPref(ALLOWED_ORIENTATION_UNFOLDED, Orientation.toInt(value))
         }
 
     private val TIPPED = booleanPreferencesKey("tipped")

@@ -339,15 +339,15 @@ fun SettingsGroupInterface(
             },
         )
 
-        var coverScreenShoulderButtons by rememberSaveable { mutableStateOf(PrefManager.coverScreenShoulderButtons) }
+        var foldableSupportEnabled by rememberSaveable { mutableStateOf(PrefManager.foldableSupportEnabled) }
         SettingsSwitch(
             colors = settingsTileColorsAlt(),
-            title = { Text(text = stringResource(R.string.settings_interface_cover_screen_shoulder_title)) },
-            subtitle = { Text(text = stringResource(R.string.settings_interface_cover_screen_shoulder_subtitle)) },
-            state = coverScreenShoulderButtons,
+            title = { Text(text = stringResource(R.string.settings_interface_foldable_support_title)) },
+            subtitle = { Text(text = stringResource(R.string.settings_interface_foldable_support_subtitle)) },
+            state = foldableSupportEnabled,
             onCheckedChange = {
-                coverScreenShoulderButtons = it
-                PrefManager.coverScreenShoulderButtons = it
+                foldableSupportEnabled = it
+                PrefManager.foldableSupportEnabled = it
             },
         )
 

@@ -215,6 +215,13 @@ class PluviaApp : SplitCompatApplication() {
         internal var xEnvironment: XEnvironment? = null
         internal var xServerView: XServerRendererView? = null
         var inputControlsView: InputControlsView? = null
+
+        // Container view hosting the game surface; used to move/resize the game area on foldables
+        var gameHostView: android.widget.FrameLayout? = null
+
+        // Single virtual gamepad state shared by all on-screen control surfaces (inner overlay
+        // + foldable cover screen) so their inputs merge instead of overwriting on commit
+        var sharedVirtualGamepadState: com.winlator.inputcontrols.GamepadState? = null
         var inputControlsManager: InputControlsManager? = null
         var touchpadView: TouchpadView? = null
         var achievementWatcher: app.gamenative.service.AchievementWatcher? = null
@@ -253,6 +260,8 @@ class PluviaApp : SplitCompatApplication() {
 
             xEnvironment = null
             inputControlsView = null
+            gameHostView = null
+            sharedVirtualGamepadState = null
             inputControlsManager = null
             touchpadView = null
             achievementWatcher = null

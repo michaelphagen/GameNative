@@ -153,8 +153,6 @@ public class InputControlsView extends View {
                 for (ControlElement element : profile.getElements()) {
                     // Hide STICK elements replaced by container shooter mode
                     if (isStickHiddenByShooterMode(element)) continue;
-                    // Hide shoulder buttons shown on the foldable cover screen
-                    if (isHiddenByCoverScreen(element)) continue;
                     element.draw(canvas);
                 }
             }
@@ -276,9 +274,24 @@ public class InputControlsView extends View {
     public synchronized void setProfile(ControlsProfile profile) {
         if (profile != null) {
             this.profile = profile;
+            // Keep every profile this view uses pointed at the shared gamepad state so input
+            // from multiple surfaces (inner overlay + foldable cover screen) merges instead of
+            // overwriting each other's buttons/sticks on commit.
+            if (sharedGamepadState != null) profile.setSharedGamepadState(sharedGamepadState);
             deselectAllElements();
         }
         else this.profile = null;
+    }
+
+    private GamepadState sharedGamepadState;
+
+    /**
+     * Share a single GamepadState across control surfaces so their inputs combine. Applied to
+     * the current profile immediately and to any profile set later via {@link #setProfile}.
+     */
+    public void setSharedGamepadState(GamepadState state) {
+        this.sharedGamepadState = state;
+        if (state != null && profile != null) profile.setSharedGamepadState(state);
     }
 
     public boolean isShowTouchscreenControls() {
@@ -410,16 +423,6 @@ public class InputControlsView extends View {
 
     public void triggerShowKeyboard() {
         if (showKeyboardCallback != null) showKeyboardCallback.run();
-    }
-
-    /** Check if a shoulder/stick-click BUTTON element is replaced by the foldable cover screen overlay. */
-    private boolean isHiddenByCoverScreen(ControlElement element) {
-        if (editMode || !app.gamenative.utils.CoverScreenManager.isSessionActive()) return false;
-        if (element.getType() != ControlElement.Type.BUTTON) return false;
-        Binding binding = element.getBindingAt(0);
-        return binding == Binding.GAMEPAD_BUTTON_L1 || binding == Binding.GAMEPAD_BUTTON_R1 ||
-               binding == Binding.GAMEPAD_BUTTON_L2 || binding == Binding.GAMEPAD_BUTTON_R2 ||
-               binding == Binding.GAMEPAD_BUTTON_L3 || binding == Binding.GAMEPAD_BUTTON_R3;
     }
 
     /** Check if a STICK element should be hidden because container shooter mode replaces it. */
@@ -749,7 +752,6 @@ public class InputControlsView extends View {
         for (ControlElement element : profile.getElements()) {
             // Skip hidden sticks in container shooter mode
             if (isStickHiddenByShooterMode(element)) continue;
-            if (isHiddenByCoverScreen(element)) continue;
             if (element.handleTouchDown(pointerId, x, y)) {
                 performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
                 handled = true;
@@ -877,22 +879,26 @@ public class InputControlsView extends View {
                         break;
                     }
 
-                    touchpadView.setPointerButtonLeftEnabled(true);
-                    touchpadView.setPointerButtonRightEnabled(true);
+                    // touchpadView is null when this view lives on the foldable cover screen
+                    if (touchpadView != null) {
+                        touchpadView.setPointerButtonLeftEnabled(true);
+                        touchpadView.setPointerButtonRightEnabled(true);
+                    }
                     for (ControlElement element : profile.getElements()) {
-                        if (isHiddenByCoverScreen(element)) continue;
                         if (element.handleTouchDown(pointerId, x, y)) {
                             performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
                             handled = true;
                         }
-                        if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
-                            touchpadView.setPointerButtonLeftEnabled(false);
-                        }
-                        if (element.getBindingAt(0) == Binding.MOUSE_RIGHT_BUTTON) {
-                            touchpadView.setPointerButtonRightEnabled(false);
+                        if (touchpadView != null) {
+                            if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
+                                touchpadView.setPointerButtonLeftEnabled(false);
+                            }
+                            if (element.getBindingAt(0) == Binding.MOUSE_RIGHT_BUTTON) {
+                                touchpadView.setPointerButtonRightEnabled(false);
+                            }
                         }
                     }
-                    if (!handled) touchpadView.onTouchEvent(event);
+                    if (!handled && touchpadView != null) touchpadView.onTouchEvent(event);
                     break;
                 }
                 case MotionEvent.ACTION_MOVE: {
@@ -917,7 +923,7 @@ public class InputControlsView extends View {
                         for (ControlElement element : profile.getElements()) {
                             if (element.handleTouchMove(pid, x, y)) handled = true;
                         }
-                        if (!handled) touchpadView.onTouchEvent(event);
+                        if (!handled && touchpadView != null) touchpadView.onTouchEvent(event);
                     }
                     break;
                 }
@@ -941,7 +947,7 @@ public class InputControlsView extends View {
                         }
                     }
                     for (ControlElement element : profile.getElements()) if (element.handleTouchUp(pointerId)) handled = true;
-                    if (!handled) touchpadView.onTouchEvent(event);
+                    if (!handled && touchpadView != null) touchpadView.onTouchEvent(event);
                     break;
             }
 
