@@ -449,6 +449,23 @@
     <string name="look_type_mouse">Mouse</string>
     <string name="look_type_gamepad_right_stick">Gamepad Right Stick</string>
 
+    <!-- Touchpad (joystick) element -->
+    <string name="touchpad_settings">Touchpad Settings</string>
+    <string name="touchpad_output_stick">Output Stick</string>
+    <string name="touchpad_output_stick_subtitle">Which emulated joystick the touchpad drives</string>
+    <string name="touchpad_stick_right">Right Stick (camera)</string>
+    <string name="touchpad_stick_left">Left Stick (movement)</string>
+    <string name="touchpad_sensitivity">Sensitivity</string>
+    <string name="touchpad_sensitivity_subtitle">Swipe speed to stick deflection multiplier</string>
+    <string name="touchpad_momentum">Flick Momentum</string>
+    <string name="touchpad_momentum_subtitle">Camera keeps gliding after a flick, like a trackball; 0% stops instantly on lift</string>
+    <string name="touchpad_acceleration">Acceleration</string>
+    <string name="touchpad_acceleration_subtitle">Makes slow swipes finer and fast swipes proportionally stronger</string>
+    <string name="touchpad_min_output">Precision Floor</string>
+    <string name="touchpad_min_output_subtitle">Minimum stick output while moving, so tiny swipes get past the game\'s deadzone</string>
+    <string name="touchpad_screen_wide">Screen-Wide Touchpad</string>
+    <string name="touchpad_screen_wide_subtitle">Swipes anywhere on screen (outside other controls) drive this touchpad; the pad itself is hidden during play</string>
+
     <!-- Physical Controller Config -->
     <string name="physical_controller_config">Physical Controller Bindings Editor</string>
     <string name="physical_controller_config_subtitle">Configure button mappings for your physical controller</string>

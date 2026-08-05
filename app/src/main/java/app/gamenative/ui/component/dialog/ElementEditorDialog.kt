@@ -153,6 +153,18 @@ fun ElementEditorDialog(
     val originalLookSensitivity by remember { mutableFloatStateOf(element.shooterLookSensitivity) }
     val originalJoystickSize by remember { mutableFloatStateOf(element.shooterJoystickSize) }
 
+    // Touchpad (joystick) settings state
+    var currentTouchpadSensitivity by remember { mutableFloatStateOf(element.touchpadSensitivity) }
+    var currentTouchpadScreenWide by remember { mutableStateOf(element.isTouchpadScreenWide) }
+    var currentTouchpadMomentum by remember { mutableFloatStateOf(element.touchpadMomentum) }
+    var currentTouchpadAcceleration by remember { mutableFloatStateOf(element.touchpadAcceleration) }
+    var currentTouchpadMinOutput by remember { mutableFloatStateOf(element.touchpadMinOutput) }
+    val originalTouchpadSensitivity by remember { mutableFloatStateOf(element.touchpadSensitivity) }
+    val originalTouchpadScreenWide by remember { mutableStateOf(element.isTouchpadScreenWide) }
+    val originalTouchpadMomentum by remember { mutableFloatStateOf(element.touchpadMomentum) }
+    val originalTouchpadAcceleration by remember { mutableFloatStateOf(element.touchpadAcceleration) }
+    val originalTouchpadMinOutput by remember { mutableFloatStateOf(element.touchpadMinOutput) }
+
     // Range button settings state
     val rangeTypes = listOf(
         ControlElement.Range.FROM_A_TO_Z,
@@ -296,6 +308,15 @@ fun ElementEditorDialog(
                                 element.shooterJoystickSize = currentJoystickSize
                             }
 
+                            // Save touchpad properties
+                            if (types[currentTypeIndex] == ControlElement.Type.TOUCHPAD) {
+                                element.touchpadSensitivity = currentTouchpadSensitivity
+                                element.isTouchpadScreenWide = currentTouchpadScreenWide
+                                element.touchpadMomentum = currentTouchpadMomentum
+                                element.touchpadAcceleration = currentTouchpadAcceleration
+                                element.touchpadMinOutput = currentTouchpadMinOutput
+                            }
+
                     // Save range button properties
                     if (types[currentTypeIndex] == ControlElement.Type.RANGE_BUTTON) {
                         element.setRange(rangeTypes[currentRangeTypeIndex])
@@ -374,8 +395,11 @@ fun ElementEditorDialog(
                     // Element Type
                     val types = ControlElement.Type.values()
                     val typeNames = types.map {
-                        if (it == ControlElement.Type.SHOOTER_MODE) "DYNAMIC JOYSTICKS"
-                        else it.name.replace("_", " ")
+                        when (it) {
+                            ControlElement.Type.SHOOTER_MODE -> "DYNAMIC JOYSTICKS"
+                            ControlElement.Type.TOUCHPAD -> "TOUCHPAD (JOYSTICK)"
+                            else -> it.name.replace("_", " ")
+                        }
                     }
                     SettingsListDropdown(
                         colors = settingsTileColors(),
@@ -387,6 +411,15 @@ fun ElementEditorDialog(
                             val newType = types[index]
                             currentTypeIndex = index
                             element.setTypeWithoutReset(newType)
+
+                            // Touchpad hides the manual binding slots, so make sure it has a
+                            // usable stick preset instead of whatever the old type left behind
+                            if (newType == ControlElement.Type.TOUCHPAD &&
+                                element.getBindingAt(0) != com.winlator.inputcontrols.Binding.GAMEPAD_RIGHT_THUMB_UP &&
+                                element.getBindingAt(0) != com.winlator.inputcontrols.Binding.GAMEPAD_LEFT_THUMB_UP
+                            ) {
+                                applyVirtualPreset(element, VirtualPresetType.RIGHT_STICK, view)
+                            }
 
                             // Mark as having unsaved changes
                             hasUnsavedChanges = true
@@ -406,8 +439,9 @@ fun ElementEditorDialog(
                             listOf(ControlElement.Shape.CIRCLE)
                         }
                         ControlElement.Type.TRACKPAD,
+                        ControlElement.Type.TOUCHPAD,
                         ControlElement.Type.RANGE_BUTTON -> {
-                            // Trackpad and Range Button are always rendered as ROUND_RECT
+                            // Trackpad, Touchpad and Range Button are always rendered as ROUND_RECT
                             listOf(ControlElement.Shape.ROUND_RECT)
                         }
                         ControlElement.Type.D_PAD -> {
@@ -503,6 +537,33 @@ fun ElementEditorDialog(
                                 subtitle = { Text(stringResource(R.string.bindings_auto_generated_subtitle)) },
                                 enabled = false,
                                 onClick = {}
+                            )
+                        } else if (element.type == ControlElement.Type.TOUCHPAD) {
+                            // Touchpad output goes to one emulated stick; pick which
+                            val stickLabels = listOf(
+                                stringResource(R.string.touchpad_stick_right),
+                                stringResource(R.string.touchpad_stick_left)
+                            )
+                            var currentStickIndex by remember {
+                                mutableIntStateOf(
+                                    if (element.getBindingAt(0) == com.winlator.inputcontrols.Binding.GAMEPAD_LEFT_THUMB_UP) 1 else 0
+                                )
+                            }
+                            SettingsListDropdown(
+                                colors = settingsTileColors(),
+                                title = { Text(stringResource(R.string.touchpad_output_stick)) },
+                                subtitle = { Text(stringResource(R.string.touchpad_output_stick_subtitle)) },
+                                value = currentStickIndex,
+                                items = stickLabels,
+                                onItemSelected = { index ->
+                                    currentStickIndex = index
+                                    applyVirtualPreset(
+                                        element,
+                                        if (index == 1) VirtualPresetType.LEFT_STICK else VirtualPresetType.RIGHT_STICK,
+                                        view
+                                    )
+                                    hasUnsavedChanges = true
+                                }
                             )
                         } else {
                             val bindingCount = when (element.type) {
@@ -747,6 +808,143 @@ fun ElementEditorDialog(
                     }
                 }
 
+                // Touchpad Settings Section (only for TOUCHPAD type)
+                if (types[currentTypeIndex] == ControlElement.Type.TOUCHPAD) {
+                    SettingsGroup(title = { Text(stringResource(R.string.touchpad_settings)) }) {
+                        // Sensitivity slider
+                        SettingsMenuLink(
+                            colors = settingsTileColors(),
+                            title = { Text(stringResource(R.string.touchpad_sensitivity)) },
+                            subtitle = { Text(stringResource(R.string.touchpad_sensitivity_subtitle)) },
+                            onClick = {}
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Slider(
+                                value = currentTouchpadSensitivity,
+                                onValueChange = {
+                                    currentTouchpadSensitivity = it
+                                    hasUnsavedChanges = true
+                                },
+                                valueRange = 0.1f..3.0f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = String.format(Locale.US, "%.1fx", currentTouchpadSensitivity),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Flick momentum slider
+                        SettingsMenuLink(
+                            colors = settingsTileColors(),
+                            title = { Text(stringResource(R.string.touchpad_momentum)) },
+                            subtitle = { Text(stringResource(R.string.touchpad_momentum_subtitle)) },
+                            onClick = {}
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Slider(
+                                value = currentTouchpadMomentum,
+                                onValueChange = {
+                                    currentTouchpadMomentum = it
+                                    hasUnsavedChanges = true
+                                },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = String.format(Locale.US, "%.0f%%", currentTouchpadMomentum * 100),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Acceleration slider
+                        SettingsMenuLink(
+                            colors = settingsTileColors(),
+                            title = { Text(stringResource(R.string.touchpad_acceleration)) },
+                            subtitle = { Text(stringResource(R.string.touchpad_acceleration_subtitle)) },
+                            onClick = {}
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Slider(
+                                value = currentTouchpadAcceleration,
+                                onValueChange = {
+                                    currentTouchpadAcceleration = it
+                                    hasUnsavedChanges = true
+                                },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = String.format(Locale.US, "%.0f%%", currentTouchpadAcceleration * 100),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Precision / anti-deadzone slider
+                        SettingsMenuLink(
+                            colors = settingsTileColors(),
+                            title = { Text(stringResource(R.string.touchpad_min_output)) },
+                            subtitle = { Text(stringResource(R.string.touchpad_min_output_subtitle)) },
+                            onClick = {}
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Slider(
+                                value = currentTouchpadMinOutput,
+                                onValueChange = {
+                                    currentTouchpadMinOutput = it
+                                    hasUnsavedChanges = true
+                                },
+                                valueRange = 0f..0.5f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = String.format(Locale.US, "%.0f%%", currentTouchpadMinOutput * 100),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Screen-wide switch
+                        SettingsSwitch(
+                            colors = settingsTileColorsAlt(),
+                            title = { Text(stringResource(R.string.touchpad_screen_wide)) },
+                            subtitle = { Text(stringResource(R.string.touchpad_screen_wide_subtitle)) },
+                            state = currentTouchpadScreenWide,
+                            onCheckedChange = {
+                                currentTouchpadScreenWide = it
+                                hasUnsavedChanges = true
+                            },
+                        )
+                    }
+                }
+
                 // Properties Section
                 SettingsGroup(title = { Text(stringResource(R.string.properties)) }) {
                     SettingsMenuLink(
@@ -849,6 +1047,14 @@ fun ElementEditorDialog(
                         element.shooterLookSensitivity = currentLookSensitivity
                         element.shooterJoystickSize = currentJoystickSize
                     }
+                    // Save touchpad properties
+                    if (types[currentTypeIndex] == ControlElement.Type.TOUCHPAD) {
+                        element.touchpadSensitivity = currentTouchpadSensitivity
+                        element.isTouchpadScreenWide = currentTouchpadScreenWide
+                        element.touchpadMomentum = currentTouchpadMomentum
+                        element.touchpadAcceleration = currentTouchpadAcceleration
+                        element.touchpadMinOutput = currentTouchpadMinOutput
+                    }
                     // Save range button properties
                     if (types[currentTypeIndex] == ControlElement.Type.RANGE_BUTTON) {
                         element.setRange(rangeTypes[currentRangeTypeIndex])
@@ -885,6 +1091,12 @@ fun ElementEditorDialog(
                     element.shooterLookType = originalLookType
                     element.shooterLookSensitivity = originalLookSensitivity
                     element.shooterJoystickSize = originalJoystickSize
+                    // Restore original touchpad properties
+                    element.touchpadSensitivity = originalTouchpadSensitivity
+                    element.isTouchpadScreenWide = originalTouchpadScreenWide
+                    element.touchpadMomentum = originalTouchpadMomentum
+                    element.touchpadAcceleration = originalTouchpadAcceleration
+                    element.touchpadMinOutput = originalTouchpadMinOutput
                     // Restore original range button properties
                     element.setRange(originalRange)
                     element.setOrientation(originalOrientation.toByte())
