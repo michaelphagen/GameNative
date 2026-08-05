@@ -81,6 +81,7 @@ android {
             mapOf(
                 "icon" to iconValue,
                 "roundIcon" to iconRoundValue,
+                "appName" to "@string/app_name",
             ),
         )
 
@@ -167,6 +168,9 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
+            // Distinct package + label so debug builds install alongside the standard app
+            applicationIdSuffix = ".dev"
+            manifestPlaceholders["appName"] = "GameNative Dev"
         }
         release {
             isMinifyEnabled = true
@@ -365,6 +369,7 @@ dependencies {
     // Support
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.window)
     implementation(libs.apng)
     implementation(libs.datastore.preferences)
     implementation(libs.jetbrains.kotlinx.json)

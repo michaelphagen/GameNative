@@ -79,6 +79,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import app.gamenative.PluviaApp
 import app.gamenative.PrefManager
 import app.gamenative.SteamBootstrap
@@ -108,6 +109,7 @@ import app.gamenative.ui.data.XServerState
 import app.gamenative.ui.widget.PerformanceHudView
 import app.gamenative.utils.AssetUtils
 import app.gamenative.utils.ContainerUtils
+import app.gamenative.utils.CoverScreenManager
 import app.gamenative.utils.downloader.CoreDriverDownloader
 import app.gamenative.utils.CustomGameScanner
 import app.gamenative.utils.ExecutableSelectionUtils
@@ -189,6 +191,7 @@ import com.winlator.xserver.XServer
 import com.winlator.xserver.extensions.PresentExtension
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -446,8 +449,29 @@ fun XServerScreen(
     var exitWatchJob: Job? by remember { mutableStateOf(null) }
     val keyboardEscMenuHandler = remember(scope) { KeyboardEscMenuHandler(scope) }
 
+    val coverScreenManager = remember(activity) { activity?.let { CoverScreenManager(it) } }
+    LaunchedEffect(coverScreenManager) {
+        if (coverScreenManager != null && PrefManager.coverScreenShoulderButtons) {
+            // Folding/unfolding recreates the activity (configChanges doesn't cover
+            // smallestScreenSize/screenLayout) and suspends the game in between. Scope the
+            // cover session strictly to the RESUMED state so it is torn down before every
+            // fold transition and freshly re-presented once the activity settles.
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                try {
+                    coverScreenManager.start(this) { binding, pressed ->
+                        PluviaApp.inputControlsView?.handleExternalInputEvent(binding, pressed)
+                    }
+                    awaitCancellation()
+                } finally {
+                    coverScreenManager.stop()
+                }
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
+            coverScreenManager?.stop()
             physicalControllerHandler?.cleanup()
             physicalControllerHandler = null
             exitWatchJob?.cancel()
