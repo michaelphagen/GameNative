@@ -497,9 +497,12 @@ fun XServerScreen(
     var hasPhysicalController by remember { mutableStateOf(false) }
     var keepPausedForEditor by remember { mutableStateOf(false) }
 
-    /** The view edit actions target: the cover presentation view during cover editing. */
-    fun activeEditView(): InputControlsView? =
-        if (foldable.editingCoverProfile) foldable.coverInputControlsView else PluviaApp.inputControlsView
+    /** The view edit actions target: the active screen during unified editing, else the inner overlay. */
+    fun activeEditView(): InputControlsView? = when {
+        foldable.unifiedActive -> foldable.unifiedEditor?.activeView()
+        foldable.editingCoverProfile -> foldable.coverInputControlsView
+        else -> PluviaApp.inputControlsView
+    }
 
     FoldableControlsEffects(
         state = foldable,
@@ -508,8 +511,11 @@ fun XServerScreen(
         coverScreenManager = coverScreenManager,
         buildCoverContent = { ctx -> buildCoverScreenContent(foldable, container, xServerView?.getxServer(), ctx) },
         onFoldStateChanged = { unfolded ->
-            if (!unfolded && foldable.editingCoverProfile) {
-                // The cover session dies when folding; abort the edit so the toolbar closes
+            if (!unfolded && (foldable.editingCoverProfile || foldable.unifiedActive)) {
+                // The cover session dies when folding; abort the edit so the overlays close
+                foldable.unifiedEditor?.abort()
+                foldable.unifiedEditor = null
+                foldable.unifiedActive = false
                 foldable.editingCoverProfile = false
                 isEditMode = false
                 elementPositionsSnapshot = emptyMap()
@@ -521,6 +527,24 @@ fun XServerScreen(
             applyGameAreaLayout(foldable, container)
         },
     )
+    // Abort unified editing if the app is backgrounded: the cover presentation is torn down on
+    // pause, so the session would resume with the inner screen stuck locked. (See fold-abort above.)
+    DisposableEffect(lifecycleOwner, foldable) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE && foldable.unifiedActive) {
+                foldable.coverEditorHost?.detach()
+                foldable.coverEditorHost = null
+                foldable.unifiedEditor?.abort()
+                foldable.unifiedEditor = null
+                foldable.unifiedActive = false
+                foldable.unifiedActiveIsCover = false
+                isEditMode = false
+                keepPausedForEditor = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var showGameAreaDialog by remember { mutableStateOf(false) }
     var hasPhysicalKeyboard by remember { mutableStateOf(false) }
     var hasPhysicalMouse by remember { mutableStateOf(false) }
@@ -1175,48 +1199,58 @@ fun XServerScreen(
                     }
 
                     isEditMode = true
-                    PluviaApp.inputControlsView?.setEditMode(true)
-                    PluviaApp.inputControlsView?.let { icView ->
-                        // Wait for view to be laid out before loading elements
-                        icView.post {
-                            activeProfile.loadElements(icView)
-                        }
-                    }
-
                     if (!areControlsVisible) {
                         showInputControls(activeProfile, xServerView!!.getxServer().winHandler, container)
                         areControlsVisible = true
                     }
-                }
-                true
-            }
 
-            QuickMenuAction.EDIT_COVER_CONTROLS -> {
-                // The cover layout is edited directly on the cover presentation view, so the
-                // buttons are dragged on the physical panel they live on. The edit toolbar
-                // stays on the inner screen. The profile itself is auto-created (with the
-                // default layout) when the cover session first presents.
-                keepPausedForEditor = true
-                if (foldable.coverInputControlsView == null) coverScreenManager?.refreshContent()
-                val editView = foldable.coverInputControlsView
-                val coverProfile = editView?.profile
-                if (editView != null && coverProfile != null) {
-                    foldable.editingCoverProfile = true
-                    isEditMode = true
-                    editView.setEditMode(true)
-                    editView.post {
-                        coverProfile.loadElements(editView)
-                        // Snapshot for cancel, after elements have valid positions
-                        val snapshot = mutableMapOf<com.winlator.inputcontrols.ControlElement, Pair<Int, Int>>()
-                        coverProfile.elements.forEach { element ->
-                            snapshot[element] = Pair(element.x.toInt(), element.y.toInt())
+                    // Unified editing: when unfolded with a cover screen present, edit the inner
+                    // and cover layouts together (one active at a time, swipe the lock to switch).
+                    val coverView = foldable.coverInputControlsView
+                    val coverParent = foldable.coverContainer
+                    val innerParent = PluviaApp.inputControlsView?.parent as? android.view.ViewGroup
+                    if (foldable.deviceIsFoldable && foldable.isDeviceUnfolded &&
+                        coverView != null && coverParent != null && innerParent != null
+                    ) {
+                        foldable.unifiedActive = true
+                        foldable.unifiedActiveIsCover = false
+                        foldable.unifiedEditor = UnifiedControlsEditor(
+                            innerView = PluviaApp.inputControlsView!!,
+                            coverParent = coverParent,
+                            coverView = coverView,
+                            lockMessage = context.getString(R.string.unified_lock_message),
+                            lockHint = context.getString(R.string.unified_lock_hint),
+                            onEditBinding = {
+                                if (foldable.unifiedActiveIsCover) {
+                                    // Host the full editor on the cover presentation (parity)
+                                    showElementEditorOnCover(foldable)
+                                } else {
+                                    val selected = activeEditView()?.getSelectedElement()
+                                    if (selected != null) {
+                                        elementToEdit = selected
+                                        showElementEditor = true
+                                    }
+                                }
+                            },
+                            onActiveChanged = { activeCover -> foldable.unifiedActiveIsCover = activeCover },
+                            onFinished = {
+                                foldable.coverEditorHost?.detach()
+                                foldable.coverEditorHost = null
+                                foldable.unifiedEditor = null
+                                foldable.unifiedActive = false
+                                foldable.unifiedActiveIsCover = false
+                                isEditMode = false
+                                keepPausedForEditor = false
+                                resumeIfAllowedAfterOverlay()
+                            },
+                        ).also { it.start() }
+                    } else {
+                        // Single-screen edit (folded or non-foldable): inner overlay only
+                        PluviaApp.inputControlsView?.setEditMode(true)
+                        PluviaApp.inputControlsView?.let { icView ->
+                            icView.post { activeProfile.loadElements(icView) }
                         }
-                        elementPositionsSnapshot = snapshot
-                        editView.invalidate()
                     }
-                } else {
-                    Timber.w("Cover screen session not active; cannot edit cover layout")
-                    keepPausedForEditor = false
                 }
                 true
             }
@@ -2490,7 +2524,11 @@ fun XServerScreen(
         }
 
         // Floating toolbar for edit mode (always visible in edit mode)
-        if (isEditMode && (areControlsVisible || foldable.editingCoverProfile)) {
+        if (isEditMode && (
+                ((areControlsVisible || foldable.editingCoverProfile) && !foldable.unifiedActive) ||
+                    (foldable.unifiedActive && !foldable.unifiedActiveIsCover)
+                )
+        ) {
             EditModeToolbar(
                 onAdd = {
                     activeEditView()?.let { editView ->
@@ -2511,6 +2549,11 @@ fun XServerScreen(
                     activeEditView()?.removeElement()
                 },
                 onSave = {
+                    // In a unified session the editor saves both screens and tears down
+                    if (foldable.unifiedActive) {
+                        foldable.unifiedEditor?.done()
+                        return@EditModeToolbar
+                    }
                     val editView = activeEditView()
                     // Save profile changes
                     editView?.profile?.save()
@@ -2528,6 +2571,10 @@ fun XServerScreen(
                     resumeIfAllowedAfterOverlay()
                 },
                 onClose = {
+                    if (foldable.unifiedActive) {
+                        foldable.unifiedEditor?.cancel()
+                        return@EditModeToolbar
+                    }
                     val editView = activeEditView()
                     // Restore element positions from snapshot (cancel behavior)
                     if (elementPositionsSnapshot.isNotEmpty()) {
@@ -2637,7 +2684,6 @@ fun XServerScreen(
             onFpsLimiterEnabledChanged = ::applyFpsLimiterEnabled,
             onFpsLimiterChanged = ::applyFpsLimiterTarget,
             hasPhysicalController = hasPhysicalController,
-            showEditCoverControls = foldable.deviceIsFoldable && foldable.isDeviceUnfolded,
             showGameAreaOption = foldable.deviceIsFoldable && foldable.isDeviceUnfolded,
             isTouchscreenModeActive = isTouchscreenModeActive,
             onTouchGestureSettingsClick = { showTouchGestureDialog = true },

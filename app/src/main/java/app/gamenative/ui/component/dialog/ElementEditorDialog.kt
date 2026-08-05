@@ -1,6 +1,7 @@
 package app.gamenative.ui.component.dialog
 
 import android.util.Log
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -207,7 +208,9 @@ fun ElementEditorDialog(
         }
     }
 
-    Dialog(
+    // Rendered inline (no platform Dialog window) so the exact same editor can be hosted on the
+    // foldable cover presentation, which can't create sub-windows. See InlineDialogScrim.
+    InlineDialogScrim(
         onDismissRequest = {
             if (hasUnsavedChanges) {
                 showExitConfirmation = true
@@ -215,11 +218,6 @@ fun ElementEditorDialog(
                 onDismiss()
             }
         },
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false
-        )
     ) {
         // Show either full settings dialog or minimized size adjuster
         if (showSizeAdjuster) {
@@ -821,13 +819,21 @@ fun ElementEditorDialog(
         )
     }
 
-    // Show exit confirmation dialog if there are unsaved changes
+    // Show exit confirmation dialog if there are unsaved changes (inline so it also works on the
+    // foldable cover presentation)
     if (showExitConfirmation) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showExitConfirmation = false },
-            title = { Text(stringResource(R.string.unsaved_changes)) },
-            text = { Text(stringResource(R.string.unsaved_changes_message)) },
-            confirmButton = {
+        InlineDialogScrim(onDismissRequest = { showExitConfirmation = false }) {
+          Surface(
+              shape = MaterialTheme.shapes.large,
+              color = MaterialTheme.colorScheme.surface,
+              tonalElevation = 6.dp,
+          ) {
+            Column(modifier = Modifier.padding(24.dp).widthIn(max = 340.dp)) {
+                Text(stringResource(R.string.unsaved_changes), style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.unsaved_changes_message))
+                Spacer(Modifier.height(16.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = {
                     // Save and close
                     element.setScale(currentScale)
@@ -861,8 +867,7 @@ fun ElementEditorDialog(
                 }) {
                     Text(stringResource(R.string.save))
                 }
-            },
-            dismissButton = {
+                Spacer(Modifier.width(8.dp))
                 TextButton(onClick = {
                     // Discard changes and close
                     element.setScale(originalScale)
@@ -893,8 +898,10 @@ fun ElementEditorDialog(
                 }) {
                     Text(stringResource(R.string.discard))
                 }
+                }
             }
-        )
+          }
+        }
     }
 }
 
@@ -913,9 +920,8 @@ private fun SizeAdjusterOverlay(
     onCancel: () -> Unit,
     onReset: () -> Unit
 ) {
-    // Dialogs must use the composition's (activity) context: view.context may belong to a
-    // presentation window (foldable cover screen) that cannot host application dialogs
-    val dialogContext = LocalContext.current
+    // Copy-size picker is rendered inline (see below) so it works on the cover presentation too
+    var showCopySizePicker by remember { mutableStateOf(false) }
 
     // Determine if element is in top or bottom half of screen
     // Coordinates are in actual screen pixels (not normalized)
@@ -981,11 +987,7 @@ private fun SizeAdjusterOverlay(
                 ) {
                     // Copy Size button
                     OutlinedButton(
-                        onClick = {
-                            showCopySizeDialog(dialogContext, element, view) { newScale ->
-                                onScaleChange(newScale)
-                            }
-                        },
+                        onClick = { showCopySizePicker = true },
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                     ) {
@@ -1039,59 +1041,76 @@ private fun SizeAdjusterOverlay(
                 }
             }
         }
+
+        if (showCopySizePicker) {
+            CopySizePicker(
+                currentElement = element,
+                view = view,
+                onDismiss = { showCopySizePicker = false },
+                onSizeCopied = { newScale ->
+                    onScaleChange(newScale)
+                    showCopySizePicker = false
+                },
+            )
+        }
     }
 }
 
 /**
- * Show dialog to copy size from another element
+ * Inline "copy size from another element" picker. Rendered in-composition (no platform dialog)
+ * so it works on the foldable cover presentation as well as the inner screen.
  */
-private fun showCopySizeDialog(
-    context: android.content.Context,
+@Composable
+private fun CopySizePicker(
     currentElement: ControlElement,
     view: InputControlsView,
-    onSizeCopied: (Float) -> Unit
+    onDismiss: () -> Unit,
+    onSizeCopied: (Float) -> Unit,
 ) {
-    val profile = view.profile ?: return
-    val elements = profile.getElements()
-
-    // Filter out the current element and create display list
-    val otherElements = elements.filter { it != currentElement }
-
-    if (otherElements.isEmpty()) {
-        SnackbarManager.show(context.getString(R.string.toast_no_elements_to_copy))
-        return
+    val otherElements = remember {
+        view.profile?.getElements()?.filter { it != currentElement } ?: emptyList()
     }
-
-    // Create display items showing element info with better formatting
-    val elementNames = otherElements.map { element ->
-        val typeStr = element.type.name.replace("_", " ")
-        val scaleStr = String.format(Locale.US, "%.2fx", element.scale)
-
-        // Get display text/binding
-        val label = if (!element.text.isNullOrEmpty()) {
-            element.text
-        } else {
-            val binding = element.getBindingAt(0)
-            if (binding != null && binding != com.winlator.inputcontrols.Binding.NONE) {
-                binding.toString().take(15)
-            } else {
-                "No Binding"
+    InlineDialogScrim(onDismissRequest = onDismiss, dismissOnClickOutside = true) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(modifier = Modifier.padding(16.dp).widthIn(max = 360.dp)) {
+                Text(
+                    text = stringResource(R.string.copy_size_from_element),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (otherElements.isEmpty()) {
+                    Text(stringResource(R.string.toast_no_elements_to_copy))
+                } else {
+                    Column(
+                        modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                    ) {
+                        otherElements.forEach { element ->
+                            val typeStr = element.type.name.replace("_", " ")
+                            val scaleStr = String.format(Locale.US, "%.2fx", element.scale)
+                            val label = if (!element.text.isNullOrEmpty()) element.text
+                                else element.getBindingAt(0)?.takeIf { it != com.winlator.inputcontrols.Binding.NONE }
+                                    ?.toString()?.take(15) ?: "No Binding"
+                            Text(
+                                text = "$typeStr • $scaleStr • $label",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSizeCopied(element.scale) }
+                                    .padding(vertical = 12.dp),
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+                }
             }
         }
-
-        // Format: "BUTTON • 1.50x • Space"
-        "$typeStr • $scaleStr • $label"
-    }.toTypedArray()
-
-    android.app.AlertDialog.Builder(context)
-        .setTitle(context.getString(R.string.copy_size_from_element))
-        .setItems(elementNames) { _, which ->
-            val selectedElement = otherElements[which]
-            onSizeCopied(selectedElement.scale)
-            SnackbarManager.show(context.getString(R.string.toast_copied_size, selectedElement.scale))
-        }
-        .setNegativeButton(context.getString(R.string.cancel), null)
-        .show()
+    }
 }
 
 /**

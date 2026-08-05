@@ -108,14 +108,9 @@ fun ControllerBindingDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,  // Allow custom width beyond platform default
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false
-        )
-    ) {
+    // Inline (no platform Dialog window) so this binding picker also renders on the foldable
+    // cover presentation. See InlineDialogScrim.
+    InlineDialogScrim(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.98f)  // Nearly full width for better space utilization

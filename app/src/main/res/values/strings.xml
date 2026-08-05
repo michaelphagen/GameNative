@@ -239,6 +239,8 @@
     <string name="input_controls">On-screen Controller</string>
     <string name="edit_controls">Edit On-screen Controller</string>
     <string name="edit_cover_controls">Edit Cover Screen Buttons</string>
+    <string name="unified_lock_message">Editing the other screen</string>
+    <string name="unified_lock_hint">swipe to edit here</string>
     <string name="game_area_title">Game Area</string>
     <string name="game_area_full">Full</string>
     <string name="game_area_left">Left</string>

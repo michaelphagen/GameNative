@@ -172,11 +172,14 @@ fun PluviaTheme(
     val pluviaColors = if (isDark) DarkPluviaColors else DarkPluviaColors // We can use LightPluviaColors when ready
 
     val view = LocalView.current
+    // Guard the Activity cast: when this theme is hosted on a display Presentation (the foldable
+    // cover screen) the context is a ContextThemeWrapper, not an Activity, and has no status bar.
     if (!view.isInEditMode) {
-        val window = (view.context as Activity).window
-        val insetsController = WindowCompat.getInsetsController(window, view)
-        insetsController.isAppearanceLightStatusBars = false
-        insetsController.isAppearanceLightNavigationBars = false
+        (view.context as? Activity)?.window?.let { window ->
+            val insetsController = WindowCompat.getInsetsController(window, view)
+            insetsController.isAppearanceLightStatusBars = false
+            insetsController.isAppearanceLightNavigationBars = false
+        }
     }
 
     CompositionLocalProvider(LocalPluviaColors provides pluviaColors) {

@@ -37,7 +37,10 @@ import app.gamenative.PluviaApp
 import app.gamenative.PrefManager
 import app.gamenative.R
 import app.gamenative.externaldisplay.CoverScreenShoulderView
+import app.gamenative.externaldisplay.PresentationComposeHost
+import app.gamenative.ui.component.dialog.ElementEditorDialog
 import app.gamenative.ui.enums.Orientation
+import app.gamenative.ui.theme.PluviaTheme
 import app.gamenative.utils.CoverScreenManager
 import com.winlator.container.Container
 import com.winlator.inputcontrols.Binding
@@ -67,6 +70,22 @@ class FoldableControlsState internal constructor(
      * dragged on the physical panel they live on.
      */
     var coverInputControlsView: InputControlsView? = null
+
+    /** FrameLayout wrapping the cover InputControlsView; hosts the editor's toolbar/lock overlays. */
+    var coverContainer: FrameLayout? = null
+
+    /** Active unified (inner + cover) editing session, or null when not editing across screens. */
+    var unifiedEditor: UnifiedControlsEditor? = null
+    var unifiedActive by mutableStateOf(false)
+
+    /** Which screen currently has edit focus during a unified session (drives inner toolbar visibility). */
+    var unifiedActiveIsCover by mutableStateOf(false)
+
+    /** Host for the full element editor rendered on the cover presentation (parity with inner). */
+    var coverEditorHost: app.gamenative.externaldisplay.PresentationComposeHost? = null
+
+    /** Guards installing the game-host layout listener only once per session. */
+    var gameAreaListenerInstalled = false
 }
 
 @Composable
@@ -186,24 +205,56 @@ fun buildCoverScreenContent(
             icView.invalidate()
         }
         state.coverInputControlsView = icView
-        // The cover panel is portrait-natural but gameplay is typically landscape;
-        // rotate the content when the aspects don't match.
-        val dm = ctx.resources.displayMetrics
-        val presentationPortrait = dm.heightPixels >= dm.widthPixels
-        val editedPortrait = container.isPortraitMode
-        return if (presentationPortrait != editedPortrait) {
-            val wrapper = FrameLayout(ctx)
-            icView.rotation = 90f
-            wrapper.addView(icView, FrameLayout.LayoutParams(dm.heightPixels, dm.widthPixels, Gravity.CENTER))
-            wrapper
-        } else {
-            icView
+        // Always wrap in a FrameLayout so the unified editor can stack toolbar/lock overlays on
+        // top of the cover controls. Rotation is decided from the wrapper's ACTUAL measured size
+        // via a layout listener rather than a one-shot displayMetrics read — the metrics can be
+        // wrong right after resume (phone rotated while backgrounded), which left the cover
+        // buttons rotated until a fold. Reacting to layout self-corrects on resume/rotate/fold.
+        val wrapper = FrameLayout(ctx)
+        wrapper.addView(
+            icView,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
+        )
+        val gamePortrait = container.isPortraitMode
+        wrapper.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            layoutCoverControls(wrapper, icView, gamePortrait)
         }
+        wrapper.post { layoutCoverControls(wrapper, icView, gamePortrait) }
+        state.coverContainer = wrapper
+        return wrapper
     }
     state.coverInputControlsView = null
+    state.coverContainer = null
     return CoverScreenShoulderView(ctx) { binding, pressed ->
         PluviaApp.inputControlsView?.handleExternalInputEvent(binding, pressed)
     }
+}
+
+/**
+ * Show the full element editor ON the cover presentation (same Compose editor as the inner
+ * screen, hosted via [PresentationComposeHost]). Used when the cover screen has edit focus so
+ * the user edits bindings/size while looking at the cover panel.
+ */
+fun showElementEditorOnCover(state: FoldableControlsState) {
+    val container = state.coverContainer ?: return
+    val view = state.coverInputControlsView ?: return
+    val element = view.getSelectedElement() ?: return
+    state.coverEditorHost?.detach()
+    state.coverEditorHost = PresentationComposeHost.attach(container) {
+        PluviaTheme {
+            ElementEditorDialog(
+                element = element,
+                view = view,
+                onDismiss = { detachCoverEditor(state) },
+                onSave = { detachCoverEditor(state) },
+            )
+        }
+    }
+}
+
+fun detachCoverEditor(state: FoldableControlsState) {
+    state.coverEditorHost?.detach()
+    state.coverEditorHost = null
 }
 
 /**
@@ -219,46 +270,96 @@ const val GAME_AREA_MAX_INSET = 70
 private fun gameAreaInset(container: Container, edge: String): Int =
     (container.getExtra("gameAreaInset$edge", "0").toIntOrNull() ?: 0).coerceIn(0, GAME_AREA_MAX_INSET)
 
+/** Rotate the cover controls to match the game orientation, based on the wrapper's real size. */
+private fun layoutCoverControls(wrapper: FrameLayout, icView: View, gamePortrait: Boolean) {
+    val w = wrapper.width
+    val h = wrapper.height
+    if (w == 0 || h == 0) return
+    val coverPortrait = h >= w
+    val rotate = coverPortrait != gamePortrait
+    val targetRotation = if (rotate) 90f else 0f
+    // When rotated 90°, the view's own width/height are swapped relative to the wrapper
+    val targetW = if (rotate) h else FrameLayout.LayoutParams.MATCH_PARENT
+    val targetH = if (rotate) w else FrameLayout.LayoutParams.MATCH_PARENT
+    val cur = icView.layoutParams as? FrameLayout.LayoutParams
+    if (icView.rotation == targetRotation && cur != null && cur.width == targetW && cur.height == targetH) return
+    icView.rotation = targetRotation
+    icView.layoutParams = FrameLayout.LayoutParams(targetW, targetH, Gravity.CENTER)
+}
+
 fun applyGameAreaLayout(state: FoldableControlsState, container: Container) {
     val host = PluviaApp.gameHostView ?: return
-    host.post {
-        val parent = host.parent as? View ?: return@post
-        val enabled = state.deviceIsFoldable && state.isDeviceUnfolded && !container.isPortraitMode &&
-            parent.width > 0 && parent.height > 0
-
-        // Four independent edge insets (percent of the corresponding dimension). The game area
-        // is the parent rectangle minus these insets, positioned via view margins so it can be
-        // both moved and resized freely (e.g. 40% left + 20% top).
-        var left = if (enabled) gameAreaInset(container, "Left") else 0
-        var right = if (enabled) gameAreaInset(container, "Right") else 0
-        var top = if (enabled) gameAreaInset(container, "Top") else 0
-        var bottom = if (enabled) gameAreaInset(container, "Bottom") else 0
-        // Keep opposite insets from collapsing the area past ~15% of a dimension
-        if (left + right > 85) right = 85 - left
-        if (top + bottom > 85) bottom = 85 - top
-
-        val lp = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT,
-        ).apply {
-            leftMargin = parent.width * left / 100
-            rightMargin = parent.width * right / 100
-            topMargin = parent.height * top / 100
-            bottomMargin = parent.height * bottom / 100
+    val parent = host.parent as? ViewGroup
+    if (parent == null) {
+        host.post { applyGameAreaLayout(state, container) }
+        return
+    }
+    // Re-apply whenever the parent is re-laid-out (fold/unfold/rotate/resume settle the size
+    // after our initial call, which is why the game area used to look stale until the slider was
+    // touched). The apply is idempotent so this never loops.
+    if (!state.gameAreaListenerInstalled) {
+        state.gameAreaListenerInstalled = true
+        parent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            applyGameAreaNow(state, container, host, parent)
         }
-        host.layoutParams = lp
-        PluviaApp.touchpadView?.let { touchpad ->
-            if (touchpad.parent === parent) {
-                touchpad.layoutParams = FrameLayout.LayoutParams(lp.width, lp.height).apply {
-                    leftMargin = lp.leftMargin
-                    rightMargin = lp.rightMargin
-                    topMargin = lp.topMargin
-                    bottomMargin = lp.bottomMargin
-                }
+    }
+    host.post { applyGameAreaNow(state, container, host, parent) }
+}
+
+private fun applyGameAreaNow(
+    state: FoldableControlsState,
+    container: Container,
+    host: FrameLayout,
+    parent: ViewGroup,
+) {
+    if (parent.width == 0 || parent.height == 0) return
+    val enabled = state.deviceIsFoldable && state.isDeviceUnfolded && !container.isPortraitMode
+
+    // Four independent edge insets (percent of the corresponding dimension). The game area is
+    // the parent rectangle minus these insets, positioned via view margins so it can be both
+    // moved and resized freely (e.g. 40% left + 20% top).
+    var left = if (enabled) gameAreaInset(container, "Left") else 0
+    var right = if (enabled) gameAreaInset(container, "Right") else 0
+    var top = if (enabled) gameAreaInset(container, "Top") else 0
+    var bottom = if (enabled) gameAreaInset(container, "Bottom") else 0
+    // Keep opposite insets from collapsing the area past ~15% of a dimension
+    if (left + right > 85) right = 85 - left
+    if (top + bottom > 85) bottom = 85 - top
+
+    val newLeft = parent.width * left / 100
+    val newRight = parent.width * right / 100
+    val newTop = parent.height * top / 100
+    val newBottom = parent.height * bottom / 100
+
+    // Idempotency guard: skip (and avoid a relayout loop) if nothing changed
+    val cur = host.layoutParams as? FrameLayout.LayoutParams
+    if (cur != null && cur.width == ViewGroup.LayoutParams.MATCH_PARENT && cur.height == ViewGroup.LayoutParams.MATCH_PARENT &&
+        cur.leftMargin == newLeft && cur.rightMargin == newRight && cur.topMargin == newTop && cur.bottomMargin == newBottom
+    ) {
+        return
+    }
+
+    val lp = FrameLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.MATCH_PARENT,
+    ).apply {
+        leftMargin = newLeft
+        rightMargin = newRight
+        topMargin = newTop
+        bottomMargin = newBottom
+    }
+    host.layoutParams = lp
+    PluviaApp.touchpadView?.let { touchpad ->
+        if (touchpad.parent === parent) {
+            touchpad.layoutParams = FrameLayout.LayoutParams(lp.width, lp.height).apply {
+                leftMargin = lp.leftMargin
+                rightMargin = lp.rightMargin
+                topMargin = lp.topMargin
+                bottomMargin = lp.bottomMargin
             }
         }
-        Timber.i("Game area insets: L=%d R=%d T=%d B=%d enabled=%s", left, right, top, bottom, enabled)
     }
+    Timber.i("Game area insets: L=%d R=%d T=%d B=%d enabled=%s", left, right, top, bottom, enabled)
 }
 
 /** Quick-menu dialog to move/resize the game area on the unfolded inner display. */
