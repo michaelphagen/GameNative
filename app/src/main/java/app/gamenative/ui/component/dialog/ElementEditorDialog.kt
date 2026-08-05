@@ -831,7 +831,7 @@ fun ElementEditorDialog(
                                     currentTouchpadSensitivity = it
                                     hasUnsavedChanges = true
                                 },
-                                valueRange = 0.1f..3.0f,
+                                valueRange = 0.1f..10.0f,
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
@@ -891,11 +891,11 @@ fun ElementEditorDialog(
                                     currentTouchpadAcceleration = it
                                     hasUnsavedChanges = true
                                 },
-                                valueRange = 0f..1f,
+                                valueRange = -1f..1f,
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                text = String.format(Locale.US, "%.0f%%", currentTouchpadAcceleration * 100),
+                                text = String.format(Locale.US, "%+.0f%%", currentTouchpadAcceleration * 100),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -930,6 +930,9 @@ fun ElementEditorDialog(
                                 fontWeight = FontWeight.Bold
                             )
                         }
+
+                        // Gyro aiming is configured in its own Gyro Settings screen
+                        // (toolbar → Gyro), including which touchpads trigger it.
 
                         // Screen-wide switch
                         SettingsSwitch(

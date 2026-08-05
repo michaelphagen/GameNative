@@ -104,11 +104,15 @@ public class ControlElement {
     private float touchpadMomentum = 0.5f;
     private float touchpadAcceleration = 0f;
     private float touchpadMinOutput = 0f;
+    // Whether touching this control (touchpad or stick) is one of the profile's gyro triggers,
+    // and how it behaves. Configured from the standalone Gyro Settings screen, not this editor.
+    private boolean gyroTrigger = false;
+    private boolean gyroTriggerToggle = false;
+    private boolean gyroTriggerToggledOn = false; // runtime latch when gyroTriggerToggle is set
     private float touchpadAccumX, touchpadAccumY;
-    private float touchpadOutX, touchpadOutY;
+    private float touchpadOutX, touchpadOutY; // smoothed touch-only output, kept pure for glide decay continuity
+    private float touchpadSendX, touchpadSendY; // touchpadOutX/Y with the precision floor applied, for this tick
     private boolean touchpadPointerDown = false;
-    private boolean touchpadTickerRunning = false;
-    private Runnable touchpadTicker;
 
     public ControlElement(InputControlsView inputControlsView) {
         this.inputControlsView = inputControlsView;
@@ -117,6 +121,9 @@ public class ControlElement {
     private void reset() {
         setBinding(Binding.NONE);
         scroller = null;
+        gyroTrigger = false;
+        gyroTriggerToggle = false;
+        gyroTriggerToggledOn = false;
 
         if (type == Type.STICK) {
             bindings[0] = Binding.GAMEPAD_LEFT_THUMB_UP;
@@ -315,7 +322,7 @@ public class ControlElement {
     }
 
     public void setTouchpadAcceleration(float touchpadAcceleration) {
-        this.touchpadAcceleration = Mathf.clamp(touchpadAcceleration, 0, 1);
+        this.touchpadAcceleration = Mathf.clamp(touchpadAcceleration, -1, 1);
     }
 
     public float getTouchpadMinOutput() {
@@ -324,6 +331,40 @@ public class ControlElement {
 
     public void setTouchpadMinOutput(float touchpadMinOutput) {
         this.touchpadMinOutput = Mathf.clamp(touchpadMinOutput, 0, 0.5f);
+    }
+
+    /** Touch controls (touchpad or stick) can act as gyro triggers by being touched. */
+    public boolean canBeGyroTrigger() {
+        return type == Type.TOUCHPAD || type == Type.STICK;
+    }
+
+    public boolean isGyroTrigger() {
+        return gyroTrigger;
+    }
+
+    public void setGyroTrigger(boolean gyroTrigger) {
+        this.gyroTrigger = gyroTrigger;
+        if (!gyroTrigger) gyroTriggerToggledOn = false;
+    }
+
+    public boolean isGyroTriggerToggle() {
+        return gyroTriggerToggle;
+    }
+
+    public void setGyroTriggerToggle(boolean gyroTriggerToggle) {
+        this.gyroTriggerToggle = gyroTriggerToggle;
+        gyroTriggerToggledOn = false;
+    }
+
+    /** Flip the toggle latch when this element is first touched (called on touch-down). */
+    private void onGyroTriggerTouchDown() {
+        if (canBeGyroTrigger() && gyroTrigger && gyroTriggerToggle) gyroTriggerToggledOn = !gyroTriggerToggledOn;
+    }
+
+    /** Whether touching this control is currently asserting the gyro trigger (momentary/toggle). */
+    public boolean isGyroTriggerAsserted() {
+        if (!canBeGyroTrigger() || !gyroTrigger) return false;
+        return gyroTriggerToggle ? gyroTriggerToggledOn : (currentPointerId != -1);
     }
 
     public float getScale() {
@@ -783,6 +824,12 @@ public class ControlElement {
                 elementJSONObject.put("touchpadMinOutput", (double) touchpadMinOutput);
             }
 
+            // Gyro trigger applies to any touch control that can be one (touchpad or stick)
+            if (gyroTrigger) {
+                elementJSONObject.put("gyroTrigger", true);
+                if (gyroTriggerToggle) elementJSONObject.put("gyroTriggerToggle", true);
+            }
+
             return elementJSONObject;
         }
         catch (JSONException e) {
@@ -802,6 +849,7 @@ public class ControlElement {
     public boolean handleTouchDown(int pointerId, float x, float y) {
         if (currentPointerId == -1 && containsPoint(x, y)) {
             currentPointerId = pointerId;
+            onGyroTriggerTouchDown();
             if (type == Type.BUTTON) {
                 if (isKeepButtonPressedAfterMinTime()) touchTime = System.currentTimeMillis();
                 if (!toggleSwitch || !selected) {
@@ -819,10 +867,7 @@ public class ControlElement {
                 return true;
             }
             else if (type == Type.TOUCHPAD) {
-                if (currentPosition == null) currentPosition = new PointF();
-                currentPosition.set(x, y);
-                touchpadPointerDown = true;
-                startTouchpadTicker();
+                beginTouchpadTouch(x, y);
                 return true;
             }
             else {
@@ -982,7 +1027,11 @@ public class ControlElement {
                 }
             }
             else if (type == Type.TOUCHPAD) {
-                releaseTouchpadPointer();
+                // Don't reset touchpadOutX/Y here: with momentum enabled, the centralized ticker
+                // in InputControlsView keeps gliding this element's output after finger-up.
+                touchpadPointerDown = false;
+                touchpadAccumX = 0;
+                touchpadAccumY = 0;
                 if (currentPosition != null) currentPosition = null;
             }
             else if (type == Type.RANGE_BUTTON || type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD) {
@@ -1018,11 +1067,16 @@ public class ControlElement {
     public boolean handleScreenWideTouchDown(int pointerId, float x, float y) {
         if (type != Type.TOUCHPAD || !touchpadScreenWide || currentPointerId != -1) return false;
         currentPointerId = pointerId;
+        onGyroTriggerTouchDown();
+        beginTouchpadTouch(x, y);
+        return true;
+    }
+
+    private void beginTouchpadTouch(float x, float y) {
         if (currentPosition == null) currentPosition = new PointF();
         currentPosition.set(x, y);
         touchpadPointerDown = true;
-        startTouchpadTicker();
-        return true;
+        inputControlsView.notifyTouchpadActivity();
     }
 
     // ---- Touchpad-as-joystick emulation (Steam Deck style) ----
@@ -1030,28 +1084,19 @@ public class ControlElement {
     // to swipe speed. A stationary finger produces no move events, so the accumulator stays empty
     // and the smoothed output decays back to center — unlike a plain STICK, holding still means
     // no camera movement, matching how a touchpad-driven joystick behaves.
+    //
+    // Ticking itself (the 60Hz loop, and mixing in gyro output) is owned by InputControlsView,
+    // not this element: gyro aiming targets a single shared stick that may also be fed by this
+    // pad's own touch output, and only a single, centralized tick can combine the two without
+    // the two sources racing to overwrite each other's contribution each frame.
 
-    private void startTouchpadTicker() {
-        if (touchpadTickerRunning) return;
-        touchpadTickerRunning = true;
-        touchpadAccumX = 0;
-        touchpadAccumY = 0;
-        if (touchpadTicker == null) {
-            touchpadTicker = () -> {
-                if (!touchpadTickerRunning) return;
-                tickTouchpad();
-                if (touchpadTickerRunning) inputControlsView.postDelayed(touchpadTicker, 1000 / 60);
-            };
-        }
-        inputControlsView.postDelayed(touchpadTicker, 1000 / 60);
-    }
-
-    private void tickTouchpad() {
-        if (!inputControlsView.isAttachedToWindow()) {
-            stopTouchpadEmulation();
-            return;
-        }
-
+    /**
+     * Advance touch-based stick output by one 60Hz tick (finger drag curve, flick momentum
+     * decay, precision floor). Called by InputControlsView's central ticker.
+     *
+     * @return true if this element still needs ticking (finger down, or gliding from a flick)
+     */
+    public boolean tickTouchpadOutput() {
         float maxSpeed = inputControlsView.getSnappingSize() * TOUCHPAD_STICK_MAX_SPEED;
         float targetX = 0;
         float targetY = 0;
@@ -1081,30 +1126,39 @@ public class ControlElement {
             if (targetY == 0 && Math.abs(touchpadOutY) < 0.02f) touchpadOutY = 0;
         }
 
-        if (!touchpadPointerDown && touchpadOutX == 0 && touchpadOutY == 0) {
-            stopTouchpadEmulation();
-            return;
-        }
-
-        float sendX = touchpadOutX;
-        float sendY = touchpadOutY;
+        touchpadSendX = touchpadOutX;
+        touchpadSendY = touchpadOutY;
         // Anti-deadzone: while the finger is actively moving, keep the output magnitude above
-        // the floor so slow precise swipes still get past the game's own stick deadzone.
-        // Not applied to decay/glide so the stick can settle back to center.
+        // the floor so slow precise swipes still get past the game's own stick deadzone. Not
+        // applied to decay/glide so the stick can still settle back to center.
         if (touchpadMinOutput > 0 && hasInput) {
-            float magnitude = (float) Math.sqrt(sendX * sendX + sendY * sendY);
+            float magnitude = (float) Math.sqrt(touchpadSendX * touchpadSendX + touchpadSendY * touchpadSendY);
             if (magnitude > 0 && magnitude < touchpadMinOutput) {
                 float boost = touchpadMinOutput / magnitude;
-                sendX *= boost;
-                sendY *= boost;
+                touchpadSendX *= boost;
+                touchpadSendY *= boost;
             }
         }
 
-        for (byte i = 0; i < 4; i++) {
-            float value = (i == 1 || i == 3) ? sendX : sendY;
-            inputControlsView.handleInputEvent(getBindingAt(i), true, value);
-        }
-        inputControlsView.commitGamepadState();
+        return touchpadPointerDown || touchpadOutX != 0 || touchpadOutY != 0;
+    }
+
+    /** This tick's touch-only stick contribution (precision floor applied), X axis. */
+    public float getTouchpadOutputX() {
+        return touchpadSendX;
+    }
+
+    /** This tick's touch-only stick contribution (precision floor applied), Y axis. */
+    public float getTouchpadOutputY() {
+        return touchpadSendY;
+    }
+
+    /** Reset touch-only output to zero, e.g. when the centralized ticker is stopping. */
+    public void clearTouchpadOutput() {
+        touchpadOutX = 0;
+        touchpadOutY = 0;
+        touchpadSendX = 0;
+        touchpadSendY = 0;
     }
 
     private float touchpadDeltaToStick(float delta, float maxSpeed) {
@@ -1113,37 +1167,24 @@ public class ControlElement {
         if (interpolator == null) interpolator = new CubicBezierInterpolator();
         interpolator.set(0.075f, 0.95f, 0.45f, 0.95f);
         float shaped = interpolator.getInterpolation(norm);
-        // Acceleration: raise the curve to a power so slow swipes get finer and fast swipes
-        // proportionally stronger; 0 leaves the base curve untouched
-        if (touchpadAcceleration > 0) shaped = (float) Math.pow(shaped, 1 + touchpadAcceleration * 2);
+        // Acceleration: raise the curve to a power. Positive -> exponent > 1: slow swipes get
+        // finer, fast swipes proportionally stronger. Negative -> exponent < 1 (down to 1/3):
+        // small inputs are boosted. 0 leaves the base curve untouched.
+        if (touchpadAcceleration > 0) {
+            shaped = (float) Math.pow(shaped, 1 + touchpadAcceleration * 2);
+        }
+        else if (touchpadAcceleration < 0) {
+            shaped = (float) Math.pow(shaped, 1 / (1 - touchpadAcceleration * 2));
+        }
         return Mathf.clamp(shaped * Mathf.sign(delta), -1, 1);
     }
 
     /**
-     * Finger lifted: with momentum enabled and residual velocity, let the ticker glide it out
-     * (trackball flick); otherwise stop and release immediately.
+     * Which gamepad stick this touchpad's output feeds, from its first binding. Used by the
+     * centralized ticker to combine touch and gyro contributions per stick. Returns true for
+     * the left stick, false (default) for the right stick.
      */
-    private void releaseTouchpadPointer() {
-        touchpadPointerDown = false;
-        touchpadAccumX = 0;
-        touchpadAccumY = 0;
-        float magnitudeSq = touchpadOutX * touchpadOutX + touchpadOutY * touchpadOutY;
-        if (touchpadMomentum <= 0 || magnitudeSq < TOUCHPAD_GLIDE_STOP_THRESHOLD * TOUCHPAD_GLIDE_STOP_THRESHOLD) {
-            stopTouchpadEmulation();
-        }
-    }
-
-    private void stopTouchpadEmulation() {
-        boolean wasActive = touchpadTickerRunning || touchpadOutX != 0 || touchpadOutY != 0;
-        touchpadTickerRunning = false;
-        touchpadPointerDown = false;
-        touchpadAccumX = 0;
-        touchpadAccumY = 0;
-        touchpadOutX = 0;
-        touchpadOutY = 0;
-        if (wasActive) {
-            for (byte i = 0; i < 4; i++) inputControlsView.handleInputEvent(getBindingAt(i), false);
-            inputControlsView.commitGamepadState();
-        }
+    public boolean isTouchpadTargetLeftStick() {
+        return getBindingAt(0) == Binding.GAMEPAD_LEFT_THUMB_UP;
     }
 }

@@ -455,6 +455,8 @@ fun XServerScreen(
             coverScreenManager?.stop()
             physicalControllerHandler?.cleanup()
             physicalControllerHandler = null
+            PluviaApp.gyroController?.cleanup()
+            PluviaApp.gyroController = null
             exitWatchJob?.cancel()
             exitWatchJob = null
             keyboardEscMenuHandler.cancel()
@@ -470,6 +472,7 @@ fun XServerScreen(
     var elementPositionsSnapshot by remember { mutableStateOf<Map<com.winlator.inputcontrols.ControlElement, Pair<Int, Int>>>(emptyMap()) }
     var showElementEditor by remember { mutableStateOf(false) }
     var elementToEdit by remember { mutableStateOf<com.winlator.inputcontrols.ControlElement?>(null) }
+    var showGyroSettings by remember { mutableStateOf(false) }
     var showPhysicalControllerDialog by remember { mutableStateOf(false) }
     var showPlayingBlockedDialog by rememberSaveable { mutableStateOf(false) }
     var playingBlockedRemoteName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1257,6 +1260,11 @@ fun XServerScreen(
 
             QuickMenuAction.GAME_AREA -> {
                 showGameAreaDialog = true
+                true
+            }
+
+            QuickMenuAction.GYRO -> {
+                showGyroSettings = true
                 true
             }
 
@@ -2294,6 +2302,14 @@ fun XServerScreen(
                         },
                     )
 
+                    // Standalone gyro runtime — alive during gameplay regardless of whether the
+                    // on-screen touch controls are shown. Reads the game surface for the sensor.
+                    PluviaApp.gyroController = GyroController(
+                        targetProfile,
+                        xServerView.getxServer(),
+                        viewProvider = { PluviaApp.inputControlsView },
+                    ).also { it.syncRunning() }
+
                     // Store profile for auto-show logic
                     loadedProfile = targetProfile
                 }
@@ -2317,6 +2333,11 @@ fun XServerScreen(
             // Wire SHOW_KEYBOARD binding callback for overlay control buttons
             icView.setShowKeyboardCallback {
                 showSoftKeyboard(icView, "onscreen_keyboard_enabled_from_binding")
+            }
+
+            // Route the GYRO action from on-screen buttons to the standalone gyro runtime
+            icView.setGyroTriggerListener { active ->
+                PluviaApp.gyroController?.setBindingTriggerActive(active)
             }
 
             xServerView.getxServer().winHandler.setInputControlsView(PluviaApp.inputControlsView)
@@ -2548,6 +2569,9 @@ fun XServerScreen(
                 onDelete = {
                     activeEditView()?.removeElement()
                 },
+                onGyro = {
+                    showGyroSettings = true
+                },
                 onSave = {
                     // In a unified session the editor saves both screens and tears down
                     if (foldable.unifiedActive) {
@@ -2771,6 +2795,30 @@ fun XServerScreen(
         )
     }
 
+    // Gyro Settings Dialog (independent of touch controls). Prefer the profile currently on
+    // screen — edit-controls flows can swap the view to a game-specific profile instance, and
+    // the touch elements you see (and touch) belong to it. Re-point the gyro runtime at the
+    // same profile so its settings and triggers are the ones being edited.
+    if (showGyroSettings) {
+        val gyroProfile = PluviaApp.inputControlsView?.profile
+            ?: PluviaApp.gyroController?.activeProfile
+        if (gyroProfile != null) {
+            gyroProfile.ensureGyroSettingsLoaded()
+            if (PluviaApp.gyroController?.activeProfile !== gyroProfile) {
+                PluviaApp.gyroController?.setProfile(gyroProfile)
+            }
+        }
+        if (gyroProfile != null) {
+            app.gamenative.ui.component.dialog.GyroSettingsDialog(
+                profile = gyroProfile,
+                onDismiss = { showGyroSettings = false },
+                onSave = { showGyroSettings = false },
+            )
+        } else {
+            showGyroSettings = false
+        }
+    }
+
     // Touch Gesture Settings Dialog
     if (showTouchGestureDialog) {
         app.gamenative.ui.component.dialog.TouchGestureSettingsDialog(
@@ -2897,6 +2945,7 @@ fun XServerScreen(
                                 PluviaApp.inputControlsView?.setProfile(profile)
                             }
                             physicalControllerHandler?.setProfile(profile)
+                            PluviaApp.gyroController?.setProfile(profile)
                             showPhysicalControllerDialog = false
                             keepPausedForEditor = false
                             resumeIfAllowedAfterOverlay()
@@ -2923,6 +2972,7 @@ private fun EditModeToolbar(
     onAdd: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onGyro: () -> Unit,
     onSave: () -> Unit,
     onClose: () -> Unit,
     onDuplicate: (Int) -> Unit
@@ -2987,6 +3037,13 @@ private fun EditModeToolbar(
                 Text(stringResource(R.string.delete), color = androidx.compose.ui.graphics.Color.White)
             }
 
+            // Gyro settings button
+            TextButton(onClick = onGyro) {
+                Icon(Icons.Default.ScreenRotation, contentDescription = "Gyro", tint = androidx.compose.ui.graphics.Color.White)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(stringResource(R.string.gyro_settings), color = androidx.compose.ui.graphics.Color.White)
+            }
+
             // Duplicate button with dropdown
             Box {
                 TextButton(onClick = { duplicateProfileOpen = !duplicateProfileOpen }) {
@@ -3033,6 +3090,11 @@ private fun EditModeToolbar(
 
 private fun showInputControls(profile: ControlsProfile, winHandler: WinHandler, container: Container) {
     profile.setVirtualGamepad(true)
+
+    // Keep the standalone gyro runtime pointed at the profile actually on screen
+    if (PluviaApp.gyroController?.activeProfile !== profile) {
+        PluviaApp.gyroController?.setProfile(profile)
+    }
 
     PluviaApp.inputControlsView?.let { icView ->
         // Check if we need to load/reload elements with valid dimensions

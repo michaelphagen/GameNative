@@ -460,10 +460,47 @@
     <string name="touchpad_momentum">Flick Momentum</string>
     <string name="touchpad_momentum_subtitle">Camera keeps gliding after a flick, like a trackball; 0% stops instantly on lift</string>
     <string name="touchpad_acceleration">Acceleration</string>
-    <string name="touchpad_acceleration_subtitle">Makes slow swipes finer and fast swipes proportionally stronger</string>
+    <string name="touchpad_acceleration_subtitle">Positive: slow swipes finer, fast swipes stronger. Negative: small inputs boosted</string>
     <string name="touchpad_min_output">Precision Floor</string>
     <string name="touchpad_min_output_subtitle">Minimum stick output while moving, so tiny swipes get past the game\'s deadzone</string>
     <string name="touchpad_screen_wide">Screen-Wide Touchpad</string>
+
+    <!-- Gyro Settings (standalone screen) -->
+    <string name="gyro_settings">Gyro</string>
+    <string name="gyro_enable">Enable Gyro Aiming</string>
+    <string name="gyro_enable_subtitle">Master switch for gyroscope aiming in this profile (works with or without on-screen controls)</string>
+    <string name="gyro_always_on">Always On</string>
+    <string name="gyro_always_on_subtitle">Gyro is active continuously; ignore triggers below</string>
+    <string name="gyro_triggers_help">Gyro turns on while any selected button is held (or tapped, in toggle mode). Buttons work whether pressed on a physical controller or an on-screen button.</string>
+    <string name="gyro_touch_triggers">Touchpad Triggers</string>
+    <string name="gyro_output_stick">Output Stick</string>
+    <string name="gyro_output_stick_subtitle">Which emulated joystick the gyro drives</string>
+    <string name="gyro_sensitivity">Sensitivity</string>
+    <string name="gyro_sensitivity_subtitle">Device rotation to stick deflection multiplier</string>
+    <string name="gyro_axis_mapping">Axis Mapping</string>
+    <string name="gyro_axis_x">Horizontal (X) From</string>
+    <string name="gyro_axis_x_subtitle">Device rotation that moves the stick left/right</string>
+    <string name="gyro_axis_y">Vertical (Y) From</string>
+    <string name="gyro_axis_y_subtitle">Device rotation that moves the stick up/down</string>
+    <string name="gyro_invert_x">Invert Horizontal</string>
+    <string name="gyro_invert_y">Invert Vertical</string>
+    <string name="gyro_axis_yaw">Yaw (turn left/right)</string>
+    <string name="gyro_axis_pitch">Pitch (tilt up/down)</string>
+    <string name="gyro_axis_roll">Roll (spin flat)</string>
+    <string name="gyro_triggers">Triggers</string>
+    <string name="gyro_triggers_none">No touchpads to use as triggers</string>
+    <string name="gyro_triggers_none_subtitle">Add a Touchpad (Joystick) control to trigger gyro by touch</string>
+    <string name="gyro_trigger_touchpad_label">Touchpad %1$d — %2$s</string>
+    <string name="gyro_trigger_stick_label">Stick %1$d — %2$s</string>
+    <string name="gyro_triggers_ignored">Always On is enabled, so these triggers are currently ignored. Turn off Always On to use them.</string>
+    <string name="gyro_trigger_enable_subtitle">Touching this pad activates gyro</string>
+    <string name="gyro_trigger_mode">Activation</string>
+    <string name="gyro_trigger_mode_subtitle">Momentary holds gyro while touched; toggle flips it on each touch</string>
+    <string name="gyro_trigger_momentary">Momentary (while touching)</string>
+    <string name="gyro_trigger_toggle">Toggle (tap on/off)</string>
+    <string name="gyro_trigger_button_hint_title">Button trigger</string>
+    <string name="gyro_trigger_button_hint_subtitle">To toggle gyro from a button, add a Button control bound to the GYRO action and enable its Toggleable option</string>
+    <string name="gyro_unavailable">This device has no gyroscope; gyro aiming will have no effect</string>
     <string name="touchpad_screen_wide_subtitle">Swipes anywhere on screen (outside other controls) drive this touchpad; the pad itself is hidden during play</string>
 
     <!-- Physical Controller Config -->

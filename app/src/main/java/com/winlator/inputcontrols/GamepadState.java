@@ -7,10 +7,27 @@ public class GamepadState {
     public float thumbLY = 0;
     public float thumbRX = 0;
     public float thumbRY = 0;
+    // Gyro aiming contribution, kept separate so the gyro runtime and touch/physical stick
+    // writers never overwrite each other; summed into the thumbstick axes at send time.
+    public float gyroLX = 0;
+    public float gyroLY = 0;
+    public float gyroRX = 0;
+    public float gyroRY = 0;
     public float triggerL = 0;
     public float triggerR = 0;
     public final boolean[] dpad = new boolean[4];
     public short buttons = 0;
+
+    private static float clampAxis(float v) {
+        return v < -1f ? -1f : (v > 1f ? 1f : v);
+    }
+
+    // Combined thumbstick values (touch/physical + gyro). Every path that serializes state to
+    // the game must use these, not the raw thumb fields, or gyro aiming silently disappears.
+    public float getCombinedLX() { return clampAxis(thumbLX + gyroLX); }
+    public float getCombinedLY() { return clampAxis(thumbLY + gyroLY); }
+    public float getCombinedRX() { return clampAxis(thumbRX + gyroRX); }
+    public float getCombinedRY() { return clampAxis(thumbRY + gyroRY); }
 
     public byte getPovHat() {
         byte povHat = -1;
@@ -28,10 +45,10 @@ public class GamepadState {
     public void writeTo(ByteBuffer buffer) {
         buffer.putShort(buttons);
         buffer.put(getPovHat());
-        buffer.putShort((short)(thumbLX * Short.MAX_VALUE));
-        buffer.putShort((short)(thumbLY * Short.MAX_VALUE));
-        buffer.putShort((short)(thumbRX * Short.MAX_VALUE));
-        buffer.putShort((short)(thumbRY * Short.MAX_VALUE));
+        buffer.putShort((short)(getCombinedLX() * Short.MAX_VALUE));
+        buffer.putShort((short)(getCombinedLY() * Short.MAX_VALUE));
+        buffer.putShort((short)(getCombinedRX() * Short.MAX_VALUE));
+        buffer.putShort((short)(getCombinedRY() * Short.MAX_VALUE));
         buffer.put((byte)(triggerL * 255));
         buffer.put((byte)(triggerR * 255));
     }
@@ -61,6 +78,10 @@ public class GamepadState {
         this.thumbLY = other.thumbLY;
         this.thumbRX = other.thumbRX;
         this.thumbRY = other.thumbRY;
+        this.gyroLX = other.gyroLX;
+        this.gyroLY = other.gyroLY;
+        this.gyroRX = other.gyroRX;
+        this.gyroRY = other.gyroRY;
         this.triggerL = other.triggerL;
         this.triggerR = other.triggerR;
         this.buttons = other.buttons;

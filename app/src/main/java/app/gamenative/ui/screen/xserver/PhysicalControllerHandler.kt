@@ -391,7 +391,9 @@ class PhysicalControllerHandler(
             }
         } else {
             // Handle special bindings
-            if (binding == Binding.OPEN_NAVIGATION_MENU) {
+            if (binding == Binding.GYRO) {
+                app.gamenative.PluviaApp.gyroController?.setBindingTriggerActive(isActionDown)
+            } else if (binding == Binding.OPEN_NAVIGATION_MENU) {
                 if (isActionDown) {
                     Log.d(TAG, "Opening navigation menu from controller binding")
                     onOpenNavigationMenu?.invoke()

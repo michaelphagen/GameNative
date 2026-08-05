@@ -458,6 +458,7 @@ public class InputControlsView extends View {
     protected void onDetachedFromWindow() {
         if (mouseMoveTimer != null)
             mouseMoveTimer.cancel();
+        touchpadTickerRunning = false;
         super.onDetachedFromWindow();
     }
 
@@ -1078,6 +1079,104 @@ public class InputControlsView extends View {
         return false;
     }
 
+    // ---- Touchpad-joystick ticker ----
+    // A single 60Hz loop computes every touchpad element's stick contribution and writes the
+    // combined per-stick values. Gyro aiming is handled separately by the standalone
+    // GyroController (which adds into dedicated additive stick fields), so gyro works even when
+    // these touch controls are hidden; the two never overwrite each other.
+    private boolean touchpadTickerRunning = false;
+    private Runnable touchpadTicker;
+
+    /** Notified when a GYRO-bound button on this surface is pressed/released. */
+    public interface GyroTriggerListener { void onGyroTrigger(boolean active); }
+    private GyroTriggerListener gyroTriggerListener;
+
+    public void setGyroTriggerListener(GyroTriggerListener listener) {
+        this.gyroTriggerListener = listener;
+    }
+
+    /** GYRO binding pressed/released on a touch button — forward to the gyro runtime. */
+    private void setGyroButtonActive(boolean active) {
+        if (gyroTriggerListener != null) gyroTriggerListener.onGyroTrigger(active);
+    }
+
+    /** Start the touchpad ticker if it isn't already running (a pad was touched). */
+    public void notifyTouchpadActivity() {
+        if (touchpadTickerRunning) return;
+        touchpadTickerRunning = true;
+        if (touchpadTicker == null) {
+            touchpadTicker = () -> {
+                if (!touchpadTickerRunning) return;
+                boolean keepGoing = tickTouchpads();
+                if (keepGoing && touchpadTickerRunning) {
+                    postDelayed(touchpadTicker, 1000 / 60);
+                }
+                else {
+                    touchpadTickerRunning = false;
+                }
+            };
+        }
+        postDelayed(touchpadTicker, 1000 / 60);
+    }
+
+    /**
+     * One 60Hz step: sum every touchpad's touch output into per-stick vectors, write the
+     * combined result, and commit. Returns true while work remains.
+     */
+    private synchronized boolean tickTouchpads() {
+        if (profile == null || !isAttachedToWindow()) return false;
+
+        float leftX = 0, leftY = 0, rightX = 0, rightY = 0;
+        boolean leftUsed = false, rightUsed = false;
+        boolean anyTouchWork = false;
+
+        for (ControlElement element : profile.getElements()) {
+            if (element.getType() != ControlElement.Type.TOUCHPAD) continue;
+            boolean stillActive = element.tickTouchpadOutput();
+            anyTouchWork |= stillActive;
+            float ox = element.getTouchpadOutputX();
+            float oy = element.getTouchpadOutputY();
+            if (element.isTouchpadTargetLeftStick()) {
+                leftUsed = true; leftX += ox; leftY += oy;
+            }
+            else {
+                rightUsed = true; rightX += ox; rightY += oy;
+            }
+        }
+
+        if (anyTouchWork) {
+            if (leftUsed) emitStick(true, Mathf.clamp(leftX, -1, 1), Mathf.clamp(leftY, -1, 1));
+            if (rightUsed) emitStick(false, Mathf.clamp(rightX, -1, 1), Mathf.clamp(rightY, -1, 1));
+            tickLeftStickDriven |= leftUsed;
+            tickRightStickDriven |= rightUsed;
+        }
+        else {
+            // Settle any stick we ever drove back to neutral
+            if (tickLeftStickDriven) emitStick(true, 0, 0);
+            if (tickRightStickDriven) emitStick(false, 0, 0);
+            tickLeftStickDriven = false;
+            tickRightStickDriven = false;
+        }
+        commitGamepadState();
+        return anyTouchWork;
+    }
+
+    // Sticks the touchpad ticker has driven this session, so it can zero exactly those on stop
+    private boolean tickLeftStickDriven = false;
+    private boolean tickRightStickDriven = false;
+
+    /** Write a combined (x,y) vector to the left or right emulated thumbstick. */
+    private void emitStick(boolean leftStick, float x, float y) {
+        if (leftStick) {
+            handleInputEvent(Binding.GAMEPAD_LEFT_THUMB_RIGHT, true, x);
+            handleInputEvent(Binding.GAMEPAD_LEFT_THUMB_DOWN, true, y);
+        }
+        else {
+            handleInputEvent(Binding.GAMEPAD_RIGHT_THUMB_RIGHT, true, x);
+            handleInputEvent(Binding.GAMEPAD_RIGHT_THUMB_DOWN, true, y);
+        }
+    }
+
     /**
      * Send the profile's current gamepad state to the game. Called at the end of every touch
      * event and by the touchpad-as-joystick ticker, whose output changes between touch events.
@@ -1171,7 +1270,11 @@ public class InputControlsView extends View {
             }
         }
         else {
-            if (binding == Binding.SHOW_KEYBOARD) {
+            if (binding == Binding.GYRO) {
+                setGyroButtonActive(isActionDown);
+                return;
+            }
+            else if (binding == Binding.SHOW_KEYBOARD) {
                 if (isActionDown) {
                     if (!showKeyboardPressed) {
                         showKeyboardPressed = true;
