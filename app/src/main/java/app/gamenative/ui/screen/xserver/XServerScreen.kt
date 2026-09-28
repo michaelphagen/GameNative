@@ -1210,6 +1210,7 @@ fun XServerScreen(
                     PluviaApp.inputControlsView?.setContainerShooterMode(ui.isShooterModeActive)
                     PluviaApp.inputControlsView?.setShooterModeConfig(ui.currentShooterConfig)
                     PluviaApp.radialMenuCoordinator?.setProfile(profile)
+                    FoldableSession.reloadCover()
                     FoldableSession.applyFoldLayout()
 
                     val winHandler = ui.xServerView?.getxServer()?.winHandler
@@ -1283,11 +1284,20 @@ fun XServerScreen(
                     }
 
                     ui.isEditMode = true
-                    PluviaApp.inputControlsView?.setEditMode(true)
-                    PluviaApp.inputControlsView?.let { icView ->
-                        // Wait for view to be laid out before loading elements
-                        icView.post {
-                            activeProfile.loadElements(icView)
+                    // Unfolded with a cover screen: edit both screens' profiles together
+                    val unified = FoldableSession.startUnifiedEditing {
+                        ui.isEditMode = false
+                        ui.elementPositionsSnapshot = emptyMap()
+                        ui.keepPausedForEditor = false
+                        resumeIfAllowedAfterOverlay()
+                    }
+                    if (!unified) {
+                        PluviaApp.inputControlsView?.setEditMode(true)
+                        PluviaApp.inputControlsView?.let { icView ->
+                            // Wait for view to be laid out before loading elements
+                            icView.post {
+                                activeProfile.loadElements(icView)
+                            }
                         }
                     }
 
@@ -2938,6 +2948,7 @@ fun XServerScreen(
                     PluviaApp.inputControlsView?.removeElement()
                 },
                 onSave = {
+                    if (FoldableSession.finishUnifiedEditing(save = true)) return@EditModeToolbar
                     // Save profile changes
                     PluviaApp.inputControlsView?.profile?.save()
                     PluviaApp.inputControlsView?.onControlsProfileContentChanged(false)
@@ -2956,6 +2967,7 @@ fun XServerScreen(
                     resumeIfAllowedAfterOverlay()
                 },
                 onClose = {
+                    if (FoldableSession.finishUnifiedEditing(save = false)) return@EditModeToolbar
                     // Restore element positions from snapshot (cancel behavior)
                     if (ui.elementPositionsSnapshot.isNotEmpty()) {
                         ui.elementPositionsSnapshot.forEach { (element, position) ->
@@ -3404,6 +3416,8 @@ private fun EditModeToolbar(
     onSave: () -> Unit,
     onClose: () -> Unit,
 ) {
+    // The cover screen has its own toolbar while it is being edited
+    if (FoldableSession.unifiedActiveIsCover) return
     var toolbarOffsetX by remember { mutableStateOf(0f) }
     var toolbarOffsetY by remember { mutableStateOf(0f) }
     val density = LocalDensity.current

@@ -37,11 +37,12 @@ enum class ControlProfileSection(val wireName: String) {
     }
 }
 
-// Which of a game's working profiles to use. Foldables keep one per fold state; everything else
-// only uses UNFOLDED.
+// Which of a game's working profiles to use. Foldables keep one per fold state and one for the
+// cover screen; everything else only uses UNFOLDED.
 enum class ControlProfileSlot(val extraKey: String) {
     UNFOLDED("profileId"),
     FOLDED("profileIdFolded"),
+    COVER("profileIdCover"),
 }
 
 data class ControlProfilePreview(
@@ -150,6 +151,7 @@ object ControlProfileService {
         val selectedId = container.getExtra(slot.extraKey, "0").toIntOrNull() ?: 0
         if (selectedId != 0) manager.getProfile(selectedId)?.let { return it }
         if (slot == ControlProfileSlot.FOLDED) return selectedProfile(container, manager)
+        if (slot == ControlProfileSlot.COVER) return null
         return manager.getProfile(0) ?: manager.profiles.firstOrNull()
     }
 
@@ -165,6 +167,24 @@ object ControlProfileService {
         slot: ControlProfileSlot,
     ): ControlsProfile {
         val newId = writeWorkingProfile(context, container, manager, selected, slot)
+        manager.reloadProfiles()
+        return requireNotNull(manager.getProfile(newId)) { "Unable to load per-game control profile" }
+    }
+
+    /** Gives a slot its first working profile, built from [json] instead of another profile. */
+    fun createWorkingProfile(
+        context: Context,
+        container: Container,
+        manager: InputControlsManager,
+        slot: ControlProfileSlot,
+        json: JSONObject,
+    ): ControlsProfile {
+        val newId = manager.nextProfileId()
+        json.put("id", newId)
+        json.put(KEY_SCHEMA_VERSION, SCHEMA_VERSION)
+        json.put(KEY_LISTED, false)
+        json.put(KEY_GAME_OWNER_ID, container.id)
+        saveWorkingProfile(context, container, json, slot)
         manager.reloadProfiles()
         return requireNotNull(manager.getProfile(newId)) { "Unable to load per-game control profile" }
     }

@@ -2,6 +2,9 @@ package app.gamenative.ui.screen.xserver
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,25 +25,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.view.doOnLayout
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import app.gamenative.PluviaApp
 import app.gamenative.PrefManager
 import app.gamenative.R
+import app.gamenative.externaldisplay.PresentationComposeHost
 import app.gamenative.inputcontrols.ControlProfileService
 import app.gamenative.inputcontrols.ControlProfileSlot
+import app.gamenative.ui.component.dialog.ElementEditorDialog
 import app.gamenative.ui.enums.Orientation
+import app.gamenative.ui.theme.PluviaTheme
 import app.gamenative.utils.BrightnessManager
+import app.gamenative.utils.CoverScreenManager
 import com.winlator.container.Container
 import com.winlator.core.FileUtils
+import com.winlator.inputcontrols.Binding
+import com.winlator.inputcontrols.BindingCombo
 import com.winlator.inputcontrols.ControlsProfile
+import com.winlator.widget.InputControlsView
 import java.util.EnumSet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
 
@@ -61,8 +77,14 @@ object FoldableSession {
     private var isDeviceUnfolded by mutableStateOf<Boolean?>(null)
     var gameHost: FrameLayout? = null
         private set
+    var unifiedActiveIsCover by mutableStateOf(false)
+        private set
     private var scope: CoroutineScope? = null
     private var container: Container? = null
+    private var coverView: InputControlsView? = null
+    private var coverContainer: FrameLayout? = null
+    private var coverEditorHost: PresentationComposeHost? = null
+    private var unifiedEditor: UnifiedControlsEditor? = null
 
     // Game Area trim of the profile on screen (left, right, top, bottom), cached for layout passes
     var gameArea = IntArray(4)
@@ -97,13 +119,31 @@ object FoldableSession {
                 .collect { unfolded ->
                     Timber.i("Fold state: %s", if (unfolded) "unfolded" else "folded")
                     isDeviceUnfolded = unfolded
+                    if (!unfolded) abortUnifiedEditing()
                     applyFoldLayout()
                     applyGameAreaLayout(container)
                 }
         }
+        // Folding cycles the activity lifecycle, so only keep the cover session while resumed
+        val lifecycleOwner = activity as? LifecycleOwner ?: return
+        val coverScreen = CoverScreenManager(activity)
+        scope.launch {
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                try {
+                    coverScreen.start(this) { context -> buildCoverContent(container, context) }
+                    awaitCancellation()
+                } finally {
+                    abortUnifiedEditing()
+                    coverScreen.stop()
+                    coverView = null
+                    coverContainer = null
+                }
+            }
+        }
     }
 
     fun end() {
+        abortUnifiedEditing()
         scope?.cancel()
         scope = null
         gameHost = null
@@ -156,6 +196,186 @@ object FoldableSession {
             FileUtils.writeString(ControlsProfile.getProfileFile(context, profile.id), json.toString())
             applyFoldLayout()
         }.onFailure { Timber.e(it, "Failed to save the game area") }
+    }
+
+    // A gyro control in any of the game's profiles counts, not just the one on screen
+    fun anyProfileHasGyroControl(): Boolean {
+        val container = container ?: return false
+        val context = gameHost?.context ?: return false
+        val manager = PluviaApp.inputControlsManager ?: return false
+        if (!deviceIsFoldable) return false
+        return ControlProfileSlot.entries.any { slot ->
+            val profile = ControlProfileService.selectedProfile(container, manager, slot) ?: return@any false
+            val json = runCatching { ControlProfileService.readProfileJson(context, profile) }.getOrNull() ?: return@any false
+            hasBinding(json.optJSONArray("elements"), Binding.GYRO_MODIFIER)
+        }
+    }
+
+    private fun hasBinding(elements: JSONArray?, binding: Binding): Boolean {
+        if (elements == null) return false
+        for (i in 0 until elements.length()) {
+            val bindings = elements.optJSONObject(i)?.optJSONArray("bindings") ?: continue
+            for (j in 0 until bindings.length()) {
+                if (BindingCombo.fromJsonValue(bindings.opt(j)).contains(binding)) return true
+            }
+        }
+        return false
+    }
+
+    // Starts editing the inner and cover profiles together; false when there is no cover screen
+    fun startUnifiedEditing(onFinished: () -> Unit): Boolean {
+        val innerView = PluviaApp.inputControlsView ?: return false
+        val coverView = coverView?.takeIf { it.isAttachedToWindow } ?: return false
+        val coverParent = coverContainer ?: return false
+        if (!isUnfolded || unifiedEditor != null) return false
+        // Editing may have reloaded the inner profile, so share its gamepad state again
+        innerView.profile?.gamepadState?.let { coverView.profile?.setGamepadState(it) }
+        unifiedEditor = UnifiedControlsEditor(
+            innerView = innerView,
+            coverParent = coverParent,
+            coverView = coverView,
+            onEditCover = ::showElementEditorOnCover,
+            onActiveChanged = { unifiedActiveIsCover = it },
+            onFinished = {
+                detachCoverEditor()
+                unifiedEditor = null
+                onFinished()
+            },
+        ).also { it.start() }
+        return true
+    }
+
+    // The cover went away mid-edit: keep editing the inner screen on its own
+    private fun abortUnifiedEditing() {
+        val editor = unifiedEditor ?: return
+        unifiedEditor = null
+        detachCoverEditor()
+        editor.abort()
+    }
+
+    // Save or cancel from the inner toolbar; false when no unified session is running
+    fun finishUnifiedEditing(save: Boolean): Boolean {
+        val editor = unifiedEditor ?: return false
+        if (save) editor.done() else editor.cancel()
+        return true
+    }
+
+    private fun buildCoverContent(container: Container, context: Context): View {
+        val xServer = PluviaApp.xServerView?.getxServer()
+        val profile = coverProfile(container)
+        if (xServer == null || profile == null) {
+            coverView = null
+            coverContainer = null
+            return View(context)
+        }
+        val icView = InputControlsView(context)
+        icView.setXServer(xServer)
+        icView.setGyroModifierTarget(PluviaApp.inputControlsView)
+        icView.setOverlayOpacity(PrefManager.getFloat("controls_opacity", InputControlsView.DEFAULT_OVERLAY_OPACITY))
+        showCoverProfile(icView, profile)
+
+        val wrapper = FrameLayout(context)
+        wrapper.addView(icView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        wrapper.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            rotateCoverControls(wrapper, icView, container.isPortraitMode)
+        }
+        coverView = icView
+        coverContainer = wrapper
+        return wrapper
+    }
+
+    // Reloads the cover after one of the game's profiles was replaced
+    fun reloadCover() {
+        val view = coverView?.takeIf { it.isAttachedToWindow } ?: return
+        container?.let(::coverProfile)?.let { showCoverProfile(view, it) }
+    }
+
+    private fun coverProfile(container: Container): ControlsProfile? {
+        val context = gameHost?.context ?: return null
+        val manager = PluviaApp.inputControlsManager ?: return null
+        ControlProfileService.selectedProfile(container, manager, ControlProfileSlot.COVER)?.let { return it }
+        return runCatching {
+            ControlProfileService.createWorkingProfile(context, container, manager, ControlProfileSlot.COVER, defaultCoverJson(context))
+        }.onFailure { Timber.e(it, "Failed to create the cover screen profile") }.getOrNull()
+    }
+
+    private fun showCoverProfile(view: InputControlsView, profile: ControlsProfile) {
+        // Share the main screen's gamepad state so cover and inner input merge
+        PluviaApp.inputControlsView?.profile?.gamepadState?.let(profile::setGamepadState)
+        view.setProfile(profile)
+        // Element positions are relative to the view size, so wait for layout
+        view.doOnLayout {
+            profile.loadElements(view)
+            view.invalidate()
+        }
+    }
+
+    // Default shoulder buttons. The cover faces away from the player, so R is drawn on the left.
+    private fun defaultCoverJson(context: Context): JSONObject {
+        val defaults = listOf(
+            Triple(Binding.GAMEPAD_BUTTON_R1, 0.25, 0.2),
+            Triple(Binding.GAMEPAD_BUTTON_R2, 0.25, 0.5),
+            Triple(Binding.GAMEPAD_BUTTON_R3, 0.25, 0.8),
+            Triple(Binding.GAMEPAD_BUTTON_L1, 0.75, 0.2),
+            Triple(Binding.GAMEPAD_BUTTON_L2, 0.75, 0.5),
+            Triple(Binding.GAMEPAD_BUTTON_L3, 0.75, 0.8),
+        )
+        val elements = JSONArray()
+        for ((binding, x, y) in defaults) {
+            elements.put(
+                JSONObject()
+                    .put("type", "BUTTON")
+                    .put("shape", "CIRCLE")
+                    .put("bindings", JSONArray().put(binding.name).put(Binding.NONE.name))
+                    .put("scale", 1.5)
+                    .put("x", x)
+                    .put("y", y)
+                    .put("toggleSwitch", false)
+                    .put("text", "")
+                    .put("iconId", 0),
+            )
+        }
+        return JSONObject()
+            .put("name", context.getString(R.string.cover_screen_profile_name))
+            .put("cursorSpeed", ControlsProfile.DEFAULT_CURSOR_SPEED.toDouble())
+            .put("elements", elements)
+    }
+
+    // Keep the cover controls in the game's orientation, whichever way the cover panel is
+    private fun rotateCoverControls(wrapper: FrameLayout, icView: View, gamePortrait: Boolean) {
+        val w = wrapper.width
+        val h = wrapper.height
+        if (w == 0 || h == 0) return
+        val rotate = (h >= w) != gamePortrait
+        val rotation = if (rotate) 90f else 0f
+        val width = if (rotate) h else ViewGroup.LayoutParams.MATCH_PARENT
+        val height = if (rotate) w else ViewGroup.LayoutParams.MATCH_PARENT
+        val lp = icView.layoutParams as? FrameLayout.LayoutParams
+        if (icView.rotation == rotation && lp != null && lp.width == width && lp.height == height) return
+        icView.rotation = rotation
+        icView.layoutParams = FrameLayout.LayoutParams(width, height, Gravity.CENTER)
+    }
+
+    private fun showElementEditorOnCover() {
+        val parent = coverContainer ?: return
+        val view = coverView ?: return
+        val element = view.selectedElement ?: return
+        detachCoverEditor()
+        coverEditorHost = PresentationComposeHost.attach(parent) {
+            PluviaTheme {
+                ElementEditorDialog(
+                    element = element,
+                    view = view,
+                    onDismiss = ::detachCoverEditor,
+                    onSave = ::detachCoverEditor,
+                )
+            }
+        }
+    }
+
+    private fun detachCoverEditor() {
+        coverEditorHost?.detach()
+        coverEditorHost = null
     }
 }
 

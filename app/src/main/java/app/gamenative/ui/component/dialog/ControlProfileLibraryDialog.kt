@@ -1217,6 +1217,7 @@ private fun sectionLabel(section: ControlProfileSection): String = stringResourc
 private fun profileSlotLabel(slot: ControlProfileSlot): Int = when (slot) {
     ControlProfileSlot.UNFOLDED -> R.string.control_profile_slot_unfolded
     ControlProfileSlot.FOLDED -> R.string.control_profile_slot_folded
+    ControlProfileSlot.COVER -> R.string.control_profile_slot_cover
 }
 
 private fun safeFileName(value: String): String =

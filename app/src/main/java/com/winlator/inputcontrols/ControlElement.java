@@ -1319,6 +1319,8 @@ public class ControlElement {
             TouchpadView touchpadView =  inputControlsView.getTouchpadView();
 
             if (type == Type.TRACKPAD) {
+                // The cover screen controls have no touchpad view to move the mouse with
+                if (touchpadView == null) return true;
                 if (currentPosition == null) currentPosition = new PointF();
                 float[] deltaPoint = touchpadView.computeDeltaPoint(currentPosition.x, currentPosition.y, x, y);
                 deltaX = deltaPoint[0];

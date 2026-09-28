@@ -17,8 +17,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.gamenative.R
 import app.gamenative.ui.util.SnackbarManager
 import app.gamenative.ui.component.settings.SettingsListDropdown
@@ -71,6 +69,8 @@ fun ElementEditorDialog(
     onSave: () -> Unit
 ) {
     val context = LocalContext.current
+    // Copy dialogs open platform windows, which the cover screen can't host
+    val onPresentation = isHostedOnPresentation()
 
     // Store original values for cancel/restore
     val originalScale by remember { mutableFloatStateOf(element.scale) }
@@ -310,7 +310,7 @@ fun ElementEditorDialog(
         view.invalidate()
     }
 
-    Dialog(
+    CoverSafeDialog(
         onDismissRequest = {
             if (hasUnsavedChanges) {
                 showExitConfirmation = true
@@ -318,11 +318,6 @@ fun ElementEditorDialog(
                 onDismiss()
             }
         },
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false
-        )
     ) {
         // Show either full settings dialog or minimized size adjuster
         if (showSizeAdjuster) {
@@ -953,27 +948,29 @@ fun ElementEditorDialog(
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                showCopyAppearanceDialog(context, element, view) { appearance ->
-                                    currentScale = appearance.scale
-                                    currentButtonColor = appearance.color
-                                    currentButtonColorText = rgbToHex(appearance.color)
-                                    currentButtonActiveColor = appearance.activeColor
-                                    currentButtonActiveColorCustom = appearance.activeColorCustom
-                                    currentButtonActiveColorText = rgbToHex(appearance.activeColor)
-                                    currentButtonOpacityInherited = appearance.opacity < 0f
-                                    currentButtonOpacity = if (appearance.opacity >= 0f) appearance.opacity else view.overlayOpacity
-                                    currentButtonStrokeScale = appearance.strokeScale
-                                    currentLookThrough = appearance.lookThrough
-                                    currentLegacyShooterLookThrough = appearance.legacyShooterLookThrough
-                                    hasUnsavedChanges = true
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
-                        ) {
-                            Text(stringResource(R.string.copy), style = MaterialTheme.typography.labelSmall)
+                        if (!onPresentation) {
+                            OutlinedButton(
+                                onClick = {
+                                    showCopyAppearanceDialog(context, element, view) { appearance ->
+                                        currentScale = appearance.scale
+                                        currentButtonColor = appearance.color
+                                        currentButtonColorText = rgbToHex(appearance.color)
+                                        currentButtonActiveColor = appearance.activeColor
+                                        currentButtonActiveColorCustom = appearance.activeColorCustom
+                                        currentButtonActiveColorText = rgbToHex(appearance.activeColor)
+                                        currentButtonOpacityInherited = appearance.opacity < 0f
+                                        currentButtonOpacity = if (appearance.opacity >= 0f) appearance.opacity else view.overlayOpacity
+                                        currentButtonStrokeScale = appearance.strokeScale
+                                        currentLookThrough = appearance.lookThrough
+                                        currentLegacyShooterLookThrough = appearance.legacyShooterLookThrough
+                                        hasUnsavedChanges = true
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                            ) {
+                                Text(stringResource(R.string.copy), style = MaterialTheme.typography.labelSmall)
+                            }
                         }
 
                         OutlinedButton(
@@ -1094,7 +1091,7 @@ fun ElementEditorDialog(
 
     // Show exit confirmation dialog if there are unsaved changes
     if (showExitConfirmation) {
-        androidx.compose.material3.AlertDialog(
+        CoverSafeAlertDialog(
             onDismissRequest = { showExitConfirmation = false },
             title = { Text(stringResource(R.string.unsaved_changes)) },
             text = { Text(stringResource(R.string.unsaved_changes_message)) },
@@ -1163,6 +1160,7 @@ private fun SizeAdjusterOverlay(
     onCancel: () -> Unit,
     onReset: () -> Unit
 ) {
+    val onPresentation = isHostedOnPresentation()
     // Determine if element is in top or bottom half of screen
     // Coordinates are in actual screen pixels (not normalized)
     // Y=0 is at TOP, Y increases downward (standard Android Canvas)
@@ -1226,23 +1224,25 @@ private fun SizeAdjusterOverlay(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     // Copy Size button
-                    OutlinedButton(
-                        onClick = {
-                            val context = view.context
-                            showCopySizeDialog(context, element, view) { newScale ->
-                                onScaleChange(newScale)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FileCopy,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(stringResource(R.string.copy), style = MaterialTheme.typography.labelSmall)
+                    if (!onPresentation) {
+                        OutlinedButton(
+                            onClick = {
+                                val context = view.context
+                                showCopySizeDialog(context, element, view) { newScale ->
+                                    onScaleChange(newScale)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(stringResource(R.string.copy), style = MaterialTheme.typography.labelSmall)
+                        }
                     }
 
                     // Reset button

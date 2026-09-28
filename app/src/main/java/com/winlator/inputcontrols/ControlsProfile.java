@@ -309,6 +309,11 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
         return gamepadState;
     }
 
+    // Lets the cover screen profile share the main profile's state so their input merges
+    public void setGamepadState(GamepadState gamepadState) {
+        this.gamepadState = gamepadState;
+    }
+
     public ExternalController addController(String id) {
         ExternalController controller = getController(id);
         if (controller == null) {

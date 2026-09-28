@@ -183,7 +183,8 @@ private class GyroQuickMenuState(private val container: Container) {
     }
 
     fun hasGyroControlAssigned(activationMode: Int): Boolean =
-        PluviaApp.inputControlsView?.hasGyroControlAssigned(activationMode) == true
+        PluviaApp.inputControlsView?.hasGyroControlAssigned(activationMode) == true ||
+            FoldableSession.anyProfileHasGyroControl()
 
     fun applyToCurrentView() {
         PluviaApp.inputControlsView?.setGyroSettings(settings)

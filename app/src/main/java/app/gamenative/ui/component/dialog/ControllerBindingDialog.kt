@@ -19,8 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.gamenative.ui.component.NoExtractOutlinedTextField
 import com.winlator.inputcontrols.Binding
 import com.winlator.inputcontrols.BindingCombo
@@ -130,14 +128,7 @@ fun ControllerBindingDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,  // Allow custom width beyond platform default
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false
-        )
-    ) {
+    CoverSafeDialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.98f)  // Nearly full width for better space utilization

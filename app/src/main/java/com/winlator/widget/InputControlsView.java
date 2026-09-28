@@ -13,6 +13,7 @@ import android.graphics.Point;
 import android.graphics.PointF;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.RectF;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.KeyEvent;
@@ -80,6 +81,17 @@ public class InputControlsView extends View {
     private ControlsProfile gyroProfile;
     private float overlayOpacity = DEFAULT_OVERLAY_OPACITY;
     private TouchpadView touchpadView;
+    private InputControlsView gyroModifierTarget;
+    private boolean editLocked = false;
+    private String editLockMessage;
+    private String editLockHint;
+    private Runnable onUnlock;
+    private final RectF unlockTrack = new RectF();
+    private final Paint editLockPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private float unlockKnobX = 0;
+    private float unlockKnobRadius = 0;
+    private boolean unlockDragging = false;
+    private boolean unlockFired = false;
     private XServer xServer;
     private final Bitmap[] icons = new Bitmap[40];
     private Timer mouseMoveTimer;
@@ -305,7 +317,78 @@ public class InputControlsView extends View {
             drawContainerShooterToggle(canvas);
         }
 
+        if (editMode && editLocked) drawEditLock(canvas);
+
         super.onDraw(canvas);
+    }
+
+    // Editing across the inner and cover screens: the inactive screen is locked until swiped
+    public void setEditLocked(boolean locked, String message, String hint, Runnable onUnlock) {
+        editLocked = locked;
+        editLockMessage = message;
+        editLockHint = hint;
+        this.onUnlock = onUnlock;
+        unlockKnobX = 0;
+        unlockDragging = false;
+        unlockFired = false;
+        invalidate();
+    }
+
+    private void drawEditLock(Canvas canvas) {
+        int w = getWidth();
+        int h = getHeight();
+        Paint p = editLockPaint;
+        p.setColor(0xB0000000);
+        canvas.drawRect(0, 0, w, h, p);
+
+        float trackWidth = w * 0.5f;
+        float trackHeight = Math.min(w, h) * 0.08f;
+        unlockKnobRadius = trackHeight * 0.45f;
+        float left = (w - trackWidth) / 2f;
+        unlockTrack.set(left, h * 0.62f, left + trackWidth, h * 0.62f + trackHeight);
+        if (unlockKnobX <= 0) unlockKnobX = unlockTrack.left + unlockKnobRadius + trackHeight * 0.1f;
+
+        p.setColor(0xFFFFFFFF);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(h * 0.045f);
+        if (editLockMessage != null) canvas.drawText(editLockMessage, w / 2f, h * 0.54f, p);
+
+        float r = trackHeight / 2f;
+        p.setColor(0x40FFFFFF);
+        canvas.drawRoundRect(unlockTrack, r, r, p);
+        p.setColor(0x99FFFFFF);
+        p.setTextSize(trackHeight * 0.4f);
+        if (editLockHint != null) canvas.drawText(editLockHint, unlockTrack.centerX(), unlockTrack.centerY() + p.getTextSize() * 0.35f, p);
+        p.setColor(0xFFFFFFFF);
+        canvas.drawCircle(unlockKnobX, unlockTrack.centerY(), unlockKnobRadius, p);
+    }
+
+    private boolean handleUnlockTouch(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                unlockDragging = Math.abs(event.getX() - unlockKnobX) < unlockKnobRadius * 3
+                        && Math.abs(event.getY() - unlockTrack.centerY()) < unlockTrack.height() * 1.5f;
+                unlockFired = false;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                if (!unlockDragging) break;
+                unlockKnobX = Mathf.clamp(event.getX(), unlockTrack.left + unlockKnobRadius, unlockTrack.right - unlockKnobRadius);
+                if (!unlockFired && unlockKnobX >= unlockTrack.right - unlockKnobRadius * 1.3f) {
+                    unlockFired = true;
+                    if (onUnlock != null) onUnlock.run();
+                }
+                invalidate();
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                unlockDragging = false;
+                if (!unlockFired) {
+                    unlockKnobX = 0;
+                    invalidate();
+                }
+                break;
+        }
+        return true;
     }
 
     private void drawGrid(Canvas canvas) {
@@ -505,7 +588,14 @@ public class InputControlsView extends View {
     }
 
     public void setGyroModifierPressed(Object source, boolean pressed) {
-        if (source != null) gyroController.setModifierPressed(source, pressed);
+        if (source == null) return;
+        if (gyroModifierTarget != null) gyroModifierTarget.setGyroModifierPressed(source, pressed);
+        else gyroController.setModifierPressed(source, pressed);
+    }
+
+    // Lets the cover screen controls drive the main screen's gyro
+    public void setGyroModifierTarget(InputControlsView target) {
+        gyroModifierTarget = target;
     }
 
     public void setGyroOverlaySuppressed(boolean suppressed) {
@@ -1427,6 +1517,7 @@ public class InputControlsView extends View {
         // Drawing-only profile previews have no touchpad or X server. Disabled views
         // must leave gestures to their parent (including scrolling over the preview).
         if (!isEnabled()) return false;
+        if (editMode && editLocked) return handleUnlockTouch(event);
         if (editMode && readyToDraw) {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN: {
@@ -1467,7 +1558,7 @@ public class InputControlsView extends View {
             int pointerId = event.getPointerId(actionIndex);
             int actionMasked = event.getActionMasked();
             boolean handled = false;
-            boolean touchscreenMode = touchpadView.isTouchscreenMode();
+            boolean touchscreenMode = touchpadView != null && touchpadView.isTouchscreenMode();
             if (touchscreenMode && lookThroughPointerState.isActive()) {
                 cancelTouchRouting();
             }
@@ -1484,8 +1575,10 @@ public class InputControlsView extends View {
                         break;
                     }
 
-                    touchpadView.setPointerButtonLeftEnabled(true);
-                    touchpadView.setPointerButtonRightEnabled(true);
+                    if (touchpadView != null) {
+                        touchpadView.setPointerButtonLeftEnabled(true);
+                        touchpadView.setPointerButtonRightEnabled(true);
+                    }
                     boolean lookThroughCandidate = false;
                     for (ControlElement element : profile.getElements()) {
                         if (element.handleTouchDown(pointerId, x, y)) {
@@ -1498,10 +1591,10 @@ public class InputControlsView extends View {
                                 lookThroughCandidate = true;
                             }
                         }
-                        if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
+                        if (touchpadView != null && element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
                             touchpadView.setPointerButtonLeftEnabled(false);
                         }
-                        if (element.getBindingAt(0) == Binding.MOUSE_RIGHT_BUTTON) {
+                        if (touchpadView != null && element.getBindingAt(0) == Binding.MOUSE_RIGHT_BUTTON) {
                             touchpadView.setPointerButtonRightEnabled(false);
                         }
                     }
@@ -1513,7 +1606,7 @@ public class InputControlsView extends View {
                                 touchpadPointers.size() > 0
                         );
                     }
-                    if (!handled) {
+                    if (!handled && touchpadView != null) {
                         if (!lookThroughPointerState.isActive()) {
                             touchpadPointers.put(pointerId, true);
                             touchpadView.onTouchEvent(event);
@@ -1550,7 +1643,7 @@ public class InputControlsView extends View {
                                     y,
                                     lookThroughTouchSlop
                             );
-                            if (delta != null) {
+                            if (delta != null && touchpadView != null) {
                                 touchpadView.movePointerFromLookThrough(delta.x, delta.y);
                             }
                         }

@@ -172,8 +172,9 @@ fun PluviaTheme(
     val pluviaColors = if (isDark) DarkPluviaColors else DarkPluviaColors // We can use LightPluviaColors when ready
 
     val view = LocalView.current
-    if (!view.isInEditMode) {
-        val window = (view.context as Activity).window
+    // Not an Activity when hosted on the foldable cover screen presentation
+    val window = (view.context as? Activity)?.window
+    if (!view.isInEditMode && window != null) {
         val insetsController = WindowCompat.getInsetsController(window, view)
         insetsController.isAppearanceLightStatusBars = false
         insetsController.isAppearanceLightNavigationBars = false

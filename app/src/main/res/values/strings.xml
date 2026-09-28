@@ -319,6 +319,8 @@
     <string name="game_area_right">Right</string>
     <string name="game_area_top">Top</string>
     <string name="game_area_bottom">Bottom</string>
+    <string name="unified_lock_message">Editing the other screen</string>
+    <string name="unified_lock_hint">Swipe to edit here</string>
     <string name="edit_physical_controller">Edit Physical Controller</string>
     <string name="sc_edit_root">Steam Controller</string>
     <string name="sc_edit_bindings">Buttons &amp; Bindings</string>
@@ -330,6 +332,8 @@
     <string name="control_profiles_empty">No control profiles are available.</string>
     <string name="control_profile_slot_unfolded">Unfolded</string>
     <string name="control_profile_slot_folded">Folded</string>
+    <string name="control_profile_slot_cover">Cover screen</string>
+    <string name="cover_screen_profile_name">Cover Screen</string>
     <string name="control_profile_applied_sections">Settings applied: %1$d/%2$d</string>
     <string name="control_profile_apply">Apply</string>
     <string name="control_profile_applied">Control profile applied</string>

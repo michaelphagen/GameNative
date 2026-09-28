@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +40,28 @@ class ControlProfileSlotTest {
             assertEquals(unfolded.id.toString(), container.getExtra(ControlProfileSlot.UNFOLDED.extraKey, "0"))
             assertEquals(folded.id.toString(), container.getExtra(ControlProfileSlot.FOLDED.extraKey, "0"))
             assertEquals(folded.id, ControlProfileService.ensureWorkingProfile(context, container, manager, ControlProfileSlot.FOLDED)?.id)
+        } finally {
+            ids.forEach { ControlsProfile.getProfileFile(context, it).delete() }
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun applyingToTheCoverSlotLeavesTheOthersAlone() {
+        val manager = InputControlsManager(context)
+        val root = Files.createTempDirectory("profile-cover-slot").toFile()
+        val container = Container("profile-cover-slot").apply { rootDir = root }
+        val ids = mutableSetOf<Int>()
+        try {
+            assertNull(ControlProfileService.selectedProfile(container, manager, ControlProfileSlot.COVER))
+            val library = ControlProfileService.createBlank(context, manager, "Cover").also { ids += it.id }
+            val cover = ControlProfileService.applyProfile(
+                context, container, manager, library, setOf(ControlProfileSection.ON_SCREEN), ControlProfileSlot.COVER,
+            ).also { ids += it.id }
+
+            assertEquals(cover.id.toString(), container.getExtra(ControlProfileSlot.COVER.extraKey, "0"))
+            assertEquals("0", container.getExtra(ControlProfileSlot.UNFOLDED.extraKey, "0"))
+            assertEquals("0", container.getExtra(ControlProfileSlot.FOLDED.extraKey, "0"))
         } finally {
             ids.forEach { ControlsProfile.getProfileFile(context, it).delete() }
             root.deleteRecursively()
