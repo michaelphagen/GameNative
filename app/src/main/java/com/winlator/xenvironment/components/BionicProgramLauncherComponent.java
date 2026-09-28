@@ -208,16 +208,16 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
 
         // Get the number of enabled players directly from ControllerManager.
         for (int i = 0; i < MAX_PLAYERS; i++) {
-            String memPath;
+            String memName;
             if (i == 0) {
                 // Player 1 uses the original, non-numbered path that is known to work.
-                memPath = "/data/data/app.gamenative/files/imagefs/tmp/gamepad.mem";
+                memName = "/files/imagefs/tmp/gamepad.mem";
             } else {
                 // Players 2, 3, 4 use a 1-based index.
-                memPath = "/data/data/app.gamenative/files/imagefs/tmp/gamepad" + i + ".mem";
+                memName = "/files/imagefs/tmp/gamepad" + i + ".mem";
             }
 
-            File memFile = new File(memPath);
+            File memFile = new File(Container.getPackageDataDir() + memName);
             memFile.getParentFile().mkdirs();
             try (RandomAccessFile raf = new RandomAccessFile(memFile, "rw")) {
                 raf.setLength(64);
@@ -346,6 +346,7 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
         envVars.put("LD_PRELOAD", ld_preload);
         envVars.put("EVSHIM_WINE", 1);
         envVars.put("EVSHIM_SHM_NAME", "controller-shm0");
+        envVars.put("EVSHIM_BASE_PATH", Container.getPackageDataDir() + "/files");
 
         if (container != null && container.isFasterExternalLoading()) {
             String ffpGameDir = null;
