@@ -804,6 +804,13 @@ object PrefManager {
             setPref(DISABLE_MOUSE_INPUT, value)
         }
 
+    private val FOLDABLE_SUPPORT_ENABLED = booleanPreferencesKey("foldable_support_enabled")
+    var foldableSupportEnabled: Boolean
+        get() = getPref(FOLDABLE_SUPPORT_ENABLED, false)
+        set(value) {
+            setPref(FOLDABLE_SUPPORT_ENABLED, value)
+        }
+
     private val PORTRAIT_MODE = booleanPreferencesKey("portrait_mode")
     var portraitMode: Boolean
         get() = getPref(PORTRAIT_MODE, false)
@@ -1080,6 +1087,27 @@ object PrefManager {
         }
         set(value) {
             setPref(ALLOWED_ORIENTATION, Orientation.toInt(value))
+        }
+
+    // Unset (-1) falls back to allowedOrientation
+    private val ALLOWED_ORIENTATION_FOLDED = intPreferencesKey("allowed_orientation_folded")
+    var allowedOrientationFolded: EnumSet<Orientation>
+        get() {
+            val value = getPref(ALLOWED_ORIENTATION_FOLDED, -1)
+            return if (value == -1) allowedOrientation else Orientation.fromInt(value)
+        }
+        set(value) {
+            setPref(ALLOWED_ORIENTATION_FOLDED, Orientation.toInt(value))
+        }
+
+    private val ALLOWED_ORIENTATION_UNFOLDED = intPreferencesKey("allowed_orientation_unfolded")
+    var allowedOrientationUnfolded: EnumSet<Orientation>
+        get() {
+            val value = getPref(ALLOWED_ORIENTATION_UNFOLDED, -1)
+            return if (value == -1) allowedOrientation else Orientation.fromInt(value)
+        }
+        set(value) {
+            setPref(ALLOWED_ORIENTATION_UNFOLDED, Orientation.toInt(value))
         }
 
     private val TIPPED = booleanPreferencesKey("tipped")

@@ -37,6 +37,13 @@ enum class ControlProfileSection(val wireName: String) {
     }
 }
 
+// Which of a game's working profiles to use. Foldables keep one per fold state; everything else
+// only uses UNFOLDED.
+enum class ControlProfileSlot(val extraKey: String) {
+    UNFOLDED("profileId"),
+    FOLDED("profileIdFolded"),
+}
+
 data class ControlProfilePreview(
     val json: JSONObject,
     val name: String,
@@ -60,6 +67,9 @@ object ControlProfileService {
     private const val KEY_LIBRARY_PROFILE_ID = "libraryProfileId"
     private const val KEY_GAME_OWNER_ID = "gameOwnerId"
     private const val KEY_SECTION_SOURCES = "sectionSources"
+    const val KEY_GAME_AREA = "gameArea"
+    val GAME_AREA_EDGES = arrayOf("left", "right", "top", "bottom")
+    const val GAME_AREA_MAX_INSET = 70
     private val STICK_TUNING_KEYS = arrayOf(
         ControlsProfile.KEY_LEFT_STICK_DEADZONE,
         ControlsProfile.KEY_RIGHT_STICK_DEADZONE,
@@ -122,26 +132,39 @@ object ControlProfileService {
         context: Context,
         container: Container,
         manager: InputControlsManager,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
     ): ControlsProfile? {
-        val selected = selectedProfile(container, manager)
-        if (selected != null && !selected.isListed && selected.gameOwnerId == container.id) return selected
+        val selected = selectedProfile(container, manager, slot)
+        if (selected != null && isWorkingProfile(container, selected, slot)) return selected
         selected ?: return null
 
-        return createWorkingProfile(context, container, manager, selected)
+        return createWorkingProfile(context, container, manager, selected, slot)
     }
 
-    private fun selectedProfile(container: Container, manager: InputControlsManager): ControlsProfile? {
-        val selectedId = container.getExtra("profileId", "0").toIntOrNull() ?: 0
-        return manager.getProfile(selectedId) ?: manager.getProfile(0) ?: manager.profiles.firstOrNull()
+    /** The profile a slot uses. The folded slot falls back to the unfolded one until it has its own. */
+    fun selectedProfile(
+        container: Container,
+        manager: InputControlsManager,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
+    ): ControlsProfile? {
+        val selectedId = container.getExtra(slot.extraKey, "0").toIntOrNull() ?: 0
+        if (selectedId != 0) manager.getProfile(selectedId)?.let { return it }
+        if (slot == ControlProfileSlot.FOLDED) return selectedProfile(container, manager)
+        return manager.getProfile(0) ?: manager.profiles.firstOrNull()
     }
+
+    private fun isWorkingProfile(container: Container, profile: ControlsProfile, slot: ControlProfileSlot): Boolean =
+        !profile.isListed && profile.gameOwnerId == container.id &&
+            container.getExtra(slot.extraKey, "0") == profile.id.toString()
 
     private fun createWorkingProfile(
         context: Context,
         container: Container,
         manager: InputControlsManager,
         selected: ControlsProfile,
+        slot: ControlProfileSlot,
     ): ControlsProfile {
-        val newId = writeWorkingProfile(context, container, manager, selected)
+        val newId = writeWorkingProfile(context, container, manager, selected, slot)
         manager.reloadProfiles()
         return requireNotNull(manager.getProfile(newId)) { "Unable to load per-game control profile" }
     }
@@ -151,9 +174,10 @@ object ControlProfileService {
         container: Container,
         manager: InputControlsManager,
         selected: ControlsProfile,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
     ): Int {
-        val json = workingProfileJson(context, container, manager, selected)
-        saveWorkingProfile(context, container, json)
+        val json = workingProfileJson(context, container, manager, selected, slot)
+        saveWorkingProfile(context, container, json, slot)
         return json.getInt("id")
     }
 
@@ -162,9 +186,10 @@ object ControlProfileService {
         container: Container,
         manager: InputControlsManager,
         selected: ControlsProfile,
+        slot: ControlProfileSlot,
     ): JSONObject {
         val sourceJson = readProfileJson(context, selected)
-        if (!selected.isListed && selected.gameOwnerId == container.id) return sourceJson
+        if (isWorkingProfile(container, selected, slot)) return sourceJson
         val newId = manager.nextProfileId()
         sourceJson.put("id", newId)
         sourceJson.put(KEY_SCHEMA_VERSION, SCHEMA_VERSION)
@@ -190,12 +215,14 @@ object ControlProfileService {
     ): Int {
         var migrated = 0
         containers.forEach { candidate ->
-            val selectedId = candidate.getExtra("profileId", "0").toIntOrNull() ?: 0
-            if (selectedId == 0) return@forEach
-            val selected = manager.getProfile(selectedId) ?: return@forEach
-            if (selected.isListed || selected.gameOwnerId != candidate.id) {
-                writeWorkingProfile(context, candidate, manager, selected)
-                migrated++
+            for (slot in ControlProfileSlot.entries) {
+                val selectedId = candidate.getExtra(slot.extraKey, "0").toIntOrNull() ?: 0
+                if (selectedId == 0) continue
+                val selected = manager.getProfile(selectedId) ?: continue
+                if (selected.isListed || selected.gameOwnerId != candidate.id) {
+                    writeWorkingProfile(context, candidate, manager, selected, slot)
+                    migrated++
+                }
             }
         }
         if (migrated > 0) manager.reloadProfiles()
@@ -219,15 +246,15 @@ object ControlProfileService {
         manager: InputControlsManager,
         source: ControlsProfile,
         selectedSections: Set<ControlProfileSection> = sectionsOf(readProfileJson(context, source)),
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
     ): ControlsProfile {
         val sourceJson = readProfileJson(context, source)
         val availableSections = sectionsOf(sourceJson)
         if (selectedSections.isEmpty() || !availableSections.containsAll(selectedSections)) {
             throw IllegalArgumentException("Selected settings are not available in this control profile")
         }
-        val selected = selectedProfile(container, manager)
-            ?: throw IOException("Unable to create a working control profile")
-        val workingJson = workingProfileJson(context, container, manager, selected)
+        val selected = selectedProfile(container, manager, slot) ?: source
+        val workingJson = workingProfileJson(context, container, manager, selected, slot)
         val workingId = workingJson.getInt("id")
         copySections(sourceJson, workingJson, selectedSections)
         if (ControlProfileSection.ON_SCREEN in selectedSections) {
@@ -238,7 +265,7 @@ object ControlProfileService {
         workingJson.put(KEY_GAME_OWNER_ID, container.id)
         workingJson.put(KEY_INCLUDED_SECTIONS, sectionArray(allStoredSections(workingJson)))
         recordSectionSource(workingJson, selectedSections, source.id)
-        saveWorkingProfile(context, container, workingJson) {
+        saveWorkingProfile(context, container, workingJson, slot) {
             applyContainerSections(container, sourceJson, selectedSections)
         }
         manager.reloadProfiles()
@@ -276,20 +303,21 @@ object ControlProfileService {
         name: String,
         sections: Set<ControlProfileSection>,
         fromCurrent: Boolean,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
     ): ControlsProfile {
-        val originalProfileId = container.getExtra("profileId", "0")
+        val originalProfileId = container.getExtra(slot.extraKey, "0")
         val saved = if (fromCurrent) {
-            saveCurrentAsProfile(context, container, manager, name, sections)
+            saveCurrentAsProfile(context, container, manager, name, sections, slot)
         } else {
             createBlank(context, manager, name)
         }
         return try {
-            applyProfile(context, container, manager, saved, sections)
+            applyProfile(context, container, manager, saved, sections, slot)
         } catch (error: Throwable) {
             // applyProfile rolls back its working profile and container changes.
             // Remove the newly-created library entry only when the selection also
             // remained unchanged, so a post-commit reload failure cannot orphan it.
-            if (container.getExtra("profileId", "0") == originalProfileId) {
+            if (container.getExtra(slot.extraKey, "0") == originalProfileId) {
                 manager.removeProfile(saved)
             }
             throw error
@@ -302,6 +330,7 @@ object ControlProfileService {
         manager: InputControlsManager,
         name: String,
         sections: Set<ControlProfileSection>,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
     ): ControlsProfile {
         if (sections.isEmpty()) throw IllegalArgumentException("Select at least one control profile section")
         val normalizedName = InputControlsManager.normalizeProfileName(name)
@@ -309,7 +338,7 @@ object ControlProfileService {
             throw IllegalArgumentException("A control profile with that name already exists")
         }
         val newId = manager.nextProfileId()
-        val json = captureCurrentJson(context, container, manager, normalizedName, sections).apply {
+        val json = captureCurrentJson(context, container, manager, normalizedName, sections, slot).apply {
             put("id", newId)
             put(KEY_LISTED, true)
             remove(KEY_LIBRARY_PROFILE_ID)
@@ -343,15 +372,16 @@ object ControlProfileService {
         manager: InputControlsManager,
         target: ControlsProfile,
         sections: Set<ControlProfileSection>,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
     ): ControlsProfile {
         if (sections.isEmpty()) throw IllegalArgumentException("Select at least one control profile section")
         requireMutableProfile(context, target)
         ensureDirectReferenceIsolated(context, container, manager, target.id)
         migrateReferencedLibraryProfiles(context, manager)
-        val working = ensureWorkingProfile(context, container, manager)
+        val working = ensureWorkingProfile(context, container, manager, slot)
             ?: throw IOException("Unable to load the working control profile")
         val workingJson = readProfileJson(context, working)
-        val captured = captureCurrentJson(context, container, manager, target.name, sections)
+        val captured = captureCurrentJson(context, container, manager, target.name, sections, slot)
         val json = readProfileJson(context, target).apply {
             copySections(captured, this, sections)
             put("id", target.id)
@@ -405,9 +435,11 @@ object ControlProfileService {
         manager: InputControlsManager,
         profileId: Int,
     ) {
-        val selectedId = container.getExtra("profileId", "0").toIntOrNull() ?: 0
-        if (selectedId == profileId && manager.getProfile(selectedId)?.isListed == true) {
-            ensureWorkingProfile(context, container, manager)
+        for (slot in ControlProfileSlot.entries) {
+            val selectedId = container.getExtra(slot.extraKey, "0").toIntOrNull() ?: 0
+            if (selectedId == profileId && manager.getProfile(selectedId)?.isListed == true) {
+                ensureWorkingProfile(context, container, manager, slot)
+            }
         }
     }
 
@@ -484,9 +516,9 @@ object ControlProfileService {
         context: Context,
         container: Container,
         manager: InputControlsManager,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
     ): Map<ControlProfileSection, Int> {
-        val selectedId = container.getExtra("profileId", "0").toIntOrNull() ?: 0
-        val selected = manager.getProfile(selectedId) ?: return emptyMap()
+        val selected = selectedProfile(container, manager, slot) ?: return emptyMap()
         val workingJson = readProfileJson(context, selected)
         val recorded = if (selected.isListed) {
             sectionsOf(workingJson).associateWith { selected.id }
@@ -494,7 +526,7 @@ object ControlProfileService {
             sectionSourcesOf(workingJson)
         }
         if (recorded.isEmpty()) return emptyMap()
-        val currentJson = captureCurrentJson(context, container, manager, selected.name, recorded.keys)
+        val currentJson = captureCurrentJson(context, container, manager, selected.name, recorded.keys, slot)
         val sourceJsonById = mutableMapOf<Int, JSONObject>()
         return recorded.filter { (section, sourceId) ->
             val source = manager.getProfile(sourceId) ?: return@filter false
@@ -541,9 +573,9 @@ object ControlProfileService {
         manager: InputControlsManager,
         name: String,
         sections: Set<ControlProfileSection>,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
     ): JSONObject {
-        val selectedId = container.getExtra("profileId", "0").toIntOrNull() ?: 0
-        val active = manager.getProfile(selectedId) ?: manager.getProfile(0)
+        val active = selectedProfile(container, manager, slot)
         val activeJson = active?.let { readProfileJson(context, it) } ?: JSONObject()
         return JSONObject().apply {
             put(KEY_SCHEMA_VERSION, SCHEMA_VERSION)
@@ -612,6 +644,8 @@ object ControlProfileService {
         if (ControlProfileSection.ON_SCREEN in sections) {
             destination.put("cursorSpeed", source.optDouble("cursorSpeed", ControlsProfile.DEFAULT_CURSOR_SPEED.toDouble()))
             destination.put("elements", deepCopyArray(source.optJSONArray("elements")))
+            source.optJSONObject(KEY_GAME_AREA)?.let { destination.put(KEY_GAME_AREA, deepCopyObject(it)) }
+                ?: destination.remove(KEY_GAME_AREA)
         }
         if (ControlProfileSection.PHYSICAL_CONTROLLER in sections) {
             destination.put("controllers", deepCopyArray(source.optJSONArray("controllers")))
@@ -743,6 +777,9 @@ object ControlProfileService {
 
     private fun validateElements(json: JSONObject) {
         optionalFiniteNumber(json, "cursorSpeed", 0.01, 20.0)
+        json.optJSONObject(KEY_GAME_AREA)?.let { gameArea ->
+            for (edge in GAME_AREA_EDGES) optionalInt(gameArea, edge, 0, GAME_AREA_MAX_INSET)
+        }
         val elements = requireNotNull(json.optJSONArray("elements"))
         if (elements.length() > 256) throw IllegalArgumentException("Profile contains too many on-screen controls")
         val types = ControlElement.Type.values().mapTo(mutableSetOf()) { it.name }
@@ -1016,6 +1053,7 @@ object ControlProfileService {
         context: Context,
         container: Container,
         json: JSONObject,
+        slot: ControlProfileSlot = ControlProfileSlot.UNFOLDED,
         updateSettings: () -> Unit = {},
     ) {
         val oldExtraData = container.extraData?.let { JSONObject(it.toString()) }
@@ -1025,7 +1063,7 @@ object ControlProfileService {
         val oldShooterConfig = container.shooterConfig
         try {
             withProfileWrite(context, json.getInt("id"), json) {
-                container.putExtra("profileId", json.getInt("id").toString())
+                container.putExtra(slot.extraKey, json.getInt("id").toString())
                 updateSettings()
                 if (!container.saveDataChecked()) throw IOException("Unable to save control settings to the container")
             }

@@ -50,6 +50,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -85,7 +86,9 @@ import app.gamenative.R
 import app.gamenative.inputcontrols.ControlProfilePreview
 import app.gamenative.inputcontrols.ControlProfileSection
 import app.gamenative.inputcontrols.ControlProfileService
+import app.gamenative.inputcontrols.ControlProfileSlot
 import app.gamenative.ui.component.NoExtractOutlinedTextField
+import app.gamenative.ui.screen.xserver.FoldableSession
 import app.gamenative.ui.theme.PluviaBackground
 import com.winlator.container.Container
 import com.winlator.inputcontrols.ControlsProfile
@@ -154,6 +157,8 @@ fun ControlProfileLibraryDialog(
         mutableStateOf<Pair<ControlsProfile, Set<ControlProfileSection>>?>(null)
     }
     val libraryListState = rememberLazyListState()
+    // Foldables keep a profile per fold state; this picks which one the actions below change
+    var slot by remember(container.id) { mutableStateOf(FoldableSession.activeSlot) }
 
     fun openCreate() {
         createName = ""
@@ -184,7 +189,7 @@ fun ControlProfileLibraryDialog(
                     )
                 }.getOrNull()
             },
-            appliedSources = ControlProfileService.appliedSectionSources(context, container, manager),
+            appliedSources = ControlProfileService.appliedSectionSources(context, container, manager, slot),
         )
     }
 
@@ -213,7 +218,7 @@ fun ControlProfileLibraryDialog(
         }
     }
 
-    LaunchedEffect(container.id) {
+    LaunchedEffect(container.id, slot) {
         runCatching { loadSnapshot() }
             .onSuccess { snapshot ->
                 entries = snapshot.entries
@@ -361,6 +366,7 @@ fun ControlProfileLibraryDialog(
                                 name,
                                 selectedSections,
                                 createFromCurrent,
+                                slot,
                             )
                         }) { applied ->
                             createDialog = false
@@ -387,6 +393,19 @@ fun ControlProfileLibraryDialog(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    if (FoldableSession.deviceIsFoldable) {
+                        item(key = "profile-slot") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                for (option in ControlProfileSlot.entries) {
+                                    FilterChip(
+                                        selected = slot == option,
+                                        onClick = { slot = option },
+                                        label = { Text(stringResource(profileSlotLabel(option))) },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (orderedEntries.isEmpty()) {
                         item(key = "empty-library") {
                             Text(
@@ -420,6 +439,7 @@ fun ControlProfileLibraryDialog(
                                                 manager,
                                                 profile,
                                                 sections,
+                                                slot,
                                             )
                                         }) { applied ->
                                             onProfileApplied(applied)
@@ -442,6 +462,7 @@ fun ControlProfileLibraryDialog(
                                                 manager,
                                                 profile,
                                                 sections,
+                                                slot,
                                             )
                                         }) {
                                             refresh()
@@ -1192,6 +1213,11 @@ private fun sectionLabel(section: ControlProfileSection): String = stringResourc
         ControlProfileSection.SHOOTER -> R.string.shooter_mode_toggle
     },
 )
+
+private fun profileSlotLabel(slot: ControlProfileSlot): Int = when (slot) {
+    ControlProfileSlot.UNFOLDED -> R.string.control_profile_slot_unfolded
+    ControlProfileSlot.FOLDED -> R.string.control_profile_slot_folded
+}
 
 private fun safeFileName(value: String): String =
     value.trim()

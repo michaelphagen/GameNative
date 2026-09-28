@@ -43,6 +43,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Close
@@ -106,6 +107,8 @@ import app.gamenative.ui.component.dialog.ControlProfileLibraryDialog
 import app.gamenative.ui.component.quickMenus.PowerControlQuickMenuTab
 import app.gamenative.ui.data.PerformanceHudConfig
 import app.gamenative.ui.data.PerformanceHudSize
+import app.gamenative.ui.screen.xserver.FoldableSession
+import app.gamenative.ui.screen.xserver.GameAreaDialog
 import app.gamenative.ui.theme.PluviaTheme
 import app.gamenative.ui.util.adaptivePanelWidth
 import app.gamenative.utils.MathUtils.normalizedProgress
@@ -137,6 +140,7 @@ object QuickMenuAction {
     const val SC_LAYOUT = 16
     // Single root entry that opens the Steam Controller editor hub (lists the editors above).
     const val SC_ROOT = 17
+    const val GAME_AREA = 18
 }
 
 private object QuickMenuTab {
@@ -544,6 +548,16 @@ fun QuickMenu(
                 ),
             )
         }
+        if (FoldableSession.deviceIsFoldable && container?.isPortraitMode == false) {
+            add(
+                QuickMenuItem(
+                    id = QuickMenuAction.GAME_AREA,
+                    icon = Icons.Default.AspectRatio,
+                    labelResId = R.string.game_area_title,
+                    accentColor = PluviaTheme.colors.accentPurple,
+                ),
+            )
+        }
     }
 
     // Created here rather than plumbed through XServerScreen: that composable
@@ -555,6 +569,7 @@ fun QuickMenu(
     var showControlProfiles by rememberSaveable(container?.id) { mutableStateOf(false) }
     var lastControllerFocusRequester by remember(container?.id) { mutableStateOf<FocusRequester?>(null) }
     var controlProfileReturnFocusRequester by remember(container?.id) { mutableStateOf<FocusRequester?>(null) }
+    var showGameAreaDialog by remember(container?.id) { mutableStateOf(false) }
     // Owned here, not plumbed through XServerScreen (register limit; see inviteMenu).
     var lsfgPresentMode by remember(container?.id) {
         mutableStateOf(container?.let { app.gamenative.utils.LsfgQuickMenuHelper.presentMode(it) } ?: "mailbox")
@@ -1129,6 +1144,8 @@ fun QuickMenu(
                                                         } else if (item.id == QuickMenuAction.CONTROL_PROFILES) {
                                                             controlProfileReturnFocusRequester = lastControllerFocusRequester
                                                             showControlProfiles = true
+                                                        } else if (item.id == QuickMenuAction.GAME_AREA) {
+                                                            showGameAreaDialog = true
                                                         } else if (onItemSelected(item.id)) {
                                                             onDismiss()
                                                         }
@@ -1232,6 +1249,10 @@ fun QuickMenu(
             }
         }
         controlProfileReturnFocusRequester = null
+    }
+
+    if (showGameAreaDialog && container != null) {
+        GameAreaDialog(onDismiss = { showGameAreaDialog = false })
     }
 
     LaunchedEffect(isVisible, selectedTab) {

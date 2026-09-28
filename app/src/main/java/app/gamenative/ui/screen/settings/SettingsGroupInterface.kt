@@ -62,6 +62,7 @@ import app.gamenative.ui.component.settings.SettingsListDropdown
 import app.gamenative.ui.component.settings.SettingsMultiListDropdown
 import app.gamenative.ui.component.ACHIEVEMENT_NOTIFICATION_POSITION
 import app.gamenative.ui.enums.LibraryTab
+import app.gamenative.ui.screen.xserver.deviceHasHinge
 import androidx.compose.ui.viewinterop.AndroidView
 import android.widget.ImageView
 import app.gamenative.utils.IconSwitcher
@@ -405,6 +406,20 @@ fun SettingsGroupInterface(
                 PrefManager.warnBeforeExit = it
             },
         )
+
+        if (remember { deviceHasHinge(context) }) {
+            var foldableSupportEnabled by rememberSaveable { mutableStateOf(PrefManager.foldableSupportEnabled) }
+            SettingsSwitch(
+                colors = settingsTileColorsAlt(),
+                title = { Text(text = stringResource(R.string.settings_interface_foldable_support_title)) },
+                subtitle = { Text(text = stringResource(R.string.settings_interface_foldable_support_subtitle)) },
+                state = foldableSupportEnabled,
+                onCheckedChange = {
+                    foldableSupportEnabled = it
+                    PrefManager.foldableSupportEnabled = it
+                },
+            )
+        }
 
         SettingsSwitch(
             colors = settingsTileColorsAlt(),

@@ -313,6 +313,12 @@
     <string name="mouse_speed">Mouse Speed</string>
     <string name="mouse_speed_subtitle">Adjust pointer speed for touch movement and controls assigned to move the mouse. Shooter Mode uses its own look sensitivity.</string>
     <string name="reset_mouse_speed">Reset mouse speed</string>
+    <string name="game_area_title">Game Area</string>
+    <string name="game_area_subtitle">Trim each edge to move and resize the game. Saved with the current control profile</string>
+    <string name="game_area_left">Left</string>
+    <string name="game_area_right">Right</string>
+    <string name="game_area_top">Top</string>
+    <string name="game_area_bottom">Bottom</string>
     <string name="edit_physical_controller">Edit Physical Controller</string>
     <string name="sc_edit_root">Steam Controller</string>
     <string name="sc_edit_bindings">Buttons &amp; Bindings</string>
@@ -322,6 +328,8 @@
     <string name="sc_edit_configs">Manage Configs</string>
     <string name="control_profiles">Control Profiles</string>
     <string name="control_profiles_empty">No control profiles are available.</string>
+    <string name="control_profile_slot_unfolded">Unfolded</string>
+    <string name="control_profile_slot_folded">Folded</string>
     <string name="control_profile_applied_sections">Settings applied: %1$d/%2$d</string>
     <string name="control_profile_apply">Apply</string>
     <string name="control_profile_applied">Control profile applied</string>
@@ -1138,6 +1146,8 @@
 
     <!-- Dialogs -->
     <string name="allowed_orientations">Allowed Orientations</string>
+    <string name="allowed_orientations_folded">Folded</string>
+    <string name="allowed_orientations_unfolded">Unfolded</string>
     <string name="select_wine_debug_channels">Select Wine Debug Channels</string>
     <string name="cpu_label">CPU%d</string>
     <string name="describe_what_happened">Describe what happened</string>
@@ -1380,6 +1390,8 @@
     <string name="settings_interface_steam_controller_denied_forever">Android won\'t ask again — turn on "Nearby devices" for GameNative in app permissions.</string>
     <string name="settings_interface_warn_before_exit_title">Warn before exiting</string>
     <string name="settings_interface_warn_before_exit_subtitle">Require double back press to exit — first press shows a warning</string>
+    <string name="settings_interface_foldable_support_title">Foldable support</string>
+    <string name="settings_interface_foldable_support_subtitle">Cover screen controls, separate control profiles and rotation for folded and unfolded, and game area resizing</string>
     <string name="settings_interface_show_gamepad_hints_title">Show controller hints</string>
     <string name="settings_interface_show_gamepad_hints_subtitle">Show the controller button hints bar at the bottom of the screen</string>
     <string name="settings_interface_icon_style">Icon style</string>

@@ -105,8 +105,6 @@ import app.gamenative.data.ShooterModeConfig
 import app.gamenative.data.SteamApp
 import app.gamenative.events.AndroidEvent
 import app.gamenative.events.SteamEvent
-import app.gamenative.ui.enums.Orientation
-import java.util.EnumSet
 import app.gamenative.externaldisplay.ExternalDisplayInputController
 import app.gamenative.externaldisplay.ExternalDisplaySwapController
 import app.gamenative.externaldisplay.SwapInputOverlayView
@@ -563,12 +561,7 @@ fun XServerScreen(
         PluviaApp.setActiveSuspendPolicy(suspendPolicy)
     }
 
-    PluviaApp.events.emit(
-        AndroidEvent.SetAllowedOrientation(
-            if (container.isPortraitMode) EnumSet.of(Orientation.PORTRAIT)
-            else PrefManager.allowedOrientation,
-        ),
-    )
+    PluviaApp.events.emit(AndroidEvent.SetAllowedOrientation(currentAllowedOrientations(container)))
 
     val xServerState = rememberSaveable(stateSaver = XServerState.Saver) {
         mutableStateOf(
@@ -1044,14 +1037,7 @@ fun XServerScreen(
             val profiles = manager?.getProfiles(false) ?: listOf()
 
             if (profiles.isNotEmpty()) {
-                // Use current profile (custom or Profile 0)
-                val profileIdStr = container.getExtra("profileId", "0")
-                val profileId = profileIdStr.toIntOrNull() ?: 0
-                val targetProfile = if (profileId != 0) {
-                    manager?.getProfile(profileId)
-                } else {
-                    null
-                } ?: manager?.getProfile(0) ?: profiles.getOrNull(2) ?: profiles.first()
+                val targetProfile = resolveOverlayProfile(container) ?: profiles.first()
 
                 if (!ui.showElementEditor && !ui.keepPausedForEditor && !ui.showQuickMenu && !ui.isEditMode) {
                     Timber.d("No external devices attached, showing on-screen controls")
@@ -1193,14 +1179,7 @@ fun XServerScreen(
                     val manager = PluviaApp.inputControlsManager
                     val profiles = manager?.getProfiles(false) ?: listOf()
                     if (profiles.isNotEmpty()) {
-                        // Use current profile (custom or Profile 0)
-                        val profileIdStr = container.getExtra("profileId", "0")
-                        val profileId = profileIdStr.toIntOrNull() ?: 0
-                        val targetProfile = if (profileId != 0) {
-                            manager?.getProfile(profileId)
-                        } else {
-                            null
-                        } ?: manager?.getProfile(0) ?: profiles.getOrNull(2) ?: profiles.first()
+                        val targetProfile = resolveOverlayProfile(container) ?: profiles.first()
 
                         showInputControls(targetProfile, ui.xServerView!!.getxServer().winHandler, container)
                     }
@@ -1212,7 +1191,7 @@ fun XServerScreen(
             QuickMenuAction.CONTROL_PROFILE_APPLIED -> {
                 val manager = PluviaApp.inputControlsManager
                 val profileId = container.getExtra("profileId", "0").toIntOrNull() ?: 0
-                val profile = manager?.getProfile(profileId)
+                val profile = manager?.getProfile(profileId)?.let { resolveOverlayProfile(container) }
                 if (profile == null) {
                     Timber.w("Applied control profile %d could not be loaded", profileId)
                     false
@@ -1231,6 +1210,7 @@ fun XServerScreen(
                     PluviaApp.inputControlsView?.setContainerShooterMode(ui.isShooterModeActive)
                     PluviaApp.inputControlsView?.setShooterModeConfig(ui.currentShooterConfig)
                     PluviaApp.radialMenuCoordinator?.setProfile(profile)
+                    FoldableSession.applyFoldLayout()
 
                     val winHandler = ui.xServerView?.getxServer()?.winHandler
                     if (ui.isTouchscreenModeActive) {
@@ -1279,7 +1259,7 @@ fun XServerScreen(
                 // Get or create profile for this container
                 val manager = PluviaApp.inputControlsManager ?: InputControlsManager(context)
                 val activeProfile = try {
-                    ControlProfileService.ensureWorkingProfile(context, container, manager)
+                    ControlProfileService.ensureWorkingProfile(context, container, manager, FoldableSession.activeSlot)
                 } catch (e: Exception) {
                     Timber.e(e, "Failed to create working controls profile for %s", container.name)
                     null
@@ -1349,13 +1329,7 @@ fun XServerScreen(
                         val manager = PluviaApp.inputControlsManager
                         val profiles = manager?.getProfiles(false) ?: listOf()
                         if (profiles.isNotEmpty() && !ui.areControlsVisible) {
-                            val profileIdStr = container.getExtra("profileId", "0")
-                            val profileId = profileIdStr.toIntOrNull() ?: 0
-                            val targetProfile = if (profileId != 0) {
-                                manager?.getProfile(profileId)
-                            } else {
-                                null
-                            } ?: manager?.getProfile(0) ?: profiles.getOrNull(2) ?: profiles.first()
+                            val targetProfile = resolveOverlayProfile(container) ?: profiles.first()
                             showInputControls(targetProfile, ui.xServerView!!.getxServer().winHandler, container)
                             ui.areControlsVisible = true
                         }
@@ -1374,12 +1348,7 @@ fun XServerScreen(
                     val profiles = manager?.getProfiles(false) ?: listOf()
                     val winHandler = ui.xServerView?.getxServer()?.winHandler
                     if (profiles.isNotEmpty() && winHandler != null) {
-                        val profileId = container.getExtra("profileId", "0").toIntOrNull() ?: 0
-                        val targetProfile = if (profileId != 0) {
-                            manager?.getProfile(profileId)
-                        } else {
-                            null
-                        } ?: manager?.getProfile(0) ?: profiles.getOrNull(2) ?: profiles.first()
+                        val targetProfile = resolveOverlayProfile(container) ?: profiles.first()
                         showInputControls(targetProfile, winHandler, container)
                         ui.areControlsVisible = true
                     }
@@ -2473,6 +2442,7 @@ fun XServerScreen(
             }
             frameLayout.addView(gameHost)
             gameHost.addView(xServerView as View)
+            FoldableSession.start(gameHost, container)
             (mainRoot.tag as? XServerViewReleaseBinding)?.let { binding ->
                 binding.gameHost = gameHost
                 val layoutListener = OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -2483,6 +2453,7 @@ fun XServerScreen(
                         screenWidth,
                         container.screenSize,
                     )
+                    applyGameAreaLayout(container)
                 }
                 frameLayout.addOnLayoutChangeListener(layoutListener)
                 binding.gameHostLayoutListener = layoutListener
@@ -2494,6 +2465,7 @@ fun XServerScreen(
                         screenWidth,
                         container.screenSize,
                     )
+                    applyGameAreaLayout(container)
                 }
             }
             val touchpadHost = if (isPortrait) gameHost else frameLayout
@@ -2537,7 +2509,8 @@ fun XServerScreen(
                     Timber.d("=== Profile Loading Start ===")
                     Timber.d("Container: ${container.name}, ProfileID from extra: $profileId")
 
-                    val customProfile = if (profileId != 0) manager?.getProfile(profileId) else null
+                    // Foldables use the profile for the current fold state
+                    val customProfile = resolveOverlayProfile(container)
 
                     val targetProfile = if (customProfile != null) {
                         // Use the custom profile associated with this container
@@ -2890,6 +2863,7 @@ fun XServerScreen(
         },
         onRelease = { view ->
             PluviaApp.inputControlsView?.setGyroForeground(false)
+            FoldableSession.end()
             ui.gameRoot = null
             removePerformanceHud()
             ui.performanceHudHost = null
@@ -2976,6 +2950,8 @@ fun XServerScreen(
                     PluviaApp.inputControlsView?.post {
                         PluviaApp.inputControlsView?.invalidate()
                     }
+                    // The device may have folded or unfolded while editing
+                    PluviaApp.inputControlsView?.post(FoldableSession::applyFoldLayout)
                     ui.keepPausedForEditor = false
                     resumeIfAllowedAfterOverlay()
                 },
@@ -2998,6 +2974,7 @@ fun XServerScreen(
                         PluviaApp.inputControlsView?.profile?.save()
                         PluviaApp.inputControlsView?.invalidate()
                     }
+                    PluviaApp.inputControlsView?.post(FoldableSession::applyFoldLayout)
                     ui.keepPausedForEditor = false
                     resumeIfAllowedAfterOverlay()
                 },
