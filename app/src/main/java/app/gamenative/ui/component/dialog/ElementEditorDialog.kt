@@ -158,6 +158,13 @@ fun ElementEditorDialog(
     val originalLookSensitivity by remember { mutableFloatStateOf(element.shooterLookSensitivity) }
     val originalJoystickSize by remember { mutableFloatStateOf(element.shooterJoystickSize) }
 
+    // Touchpad settings state
+    var currentTouchpadSensitivity by remember { mutableFloatStateOf(element.touchpadSensitivity) }
+    var currentTouchpadScreenWide by remember { mutableStateOf(element.isTouchpadScreenWide) }
+    var currentTouchpadMomentum by remember { mutableFloatStateOf(element.touchpadMomentum) }
+    var currentTouchpadAcceleration by remember { mutableFloatStateOf(element.touchpadAcceleration) }
+    var currentTouchpadMinOutput by remember { mutableFloatStateOf(element.touchpadMinOutput) }
+
     // Range button settings state
     val rangeTypes = listOf(
         ControlElement.Range.FROM_A_TO_Z,
@@ -259,6 +266,14 @@ fun ElementEditorDialog(
             element.shooterLookType = lookTypeOptions[currentLookTypeIndex]
             element.shooterLookSensitivity = currentLookSensitivity
             element.shooterJoystickSize = currentJoystickSize
+        }
+
+        if (selectedType == ControlElement.Type.TOUCHPAD) {
+            element.touchpadSensitivity = currentTouchpadSensitivity
+            element.isTouchpadScreenWide = currentTouchpadScreenWide
+            element.touchpadMomentum = currentTouchpadMomentum
+            element.touchpadAcceleration = currentTouchpadAcceleration
+            element.touchpadMinOutput = currentTouchpadMinOutput
         }
 
         if (selectedType == ControlElement.Type.RANGE_BUTTON) {
@@ -434,8 +449,11 @@ fun ElementEditorDialog(
                     // Element Type
                     val types = ControlElement.Type.values()
                     val typeNames = types.map {
-                        if (it == ControlElement.Type.SHOOTER_MODE) "DYNAMIC JOYSTICKS"
-                        else it.name.replace("_", " ")
+                        when (it) {
+                            ControlElement.Type.SHOOTER_MODE -> "DYNAMIC JOYSTICKS"
+                            ControlElement.Type.TOUCHPAD -> "TOUCHPAD (JOYSTICK)"
+                            else -> it.name.replace("_", " ")
+                        }
                     }
                     SettingsListDropdown(
                         colors = settingsTileColors(),
@@ -450,10 +468,17 @@ fun ElementEditorDialog(
                                 ControlElement.Type.STICK,
                                 ControlElement.Type.SHOOTER_MODE -> ControlElement.Shape.CIRCLE
                                 ControlElement.Type.TRACKPAD,
+                                ControlElement.Type.TOUCHPAD,
                                 ControlElement.Type.RANGE_BUTTON -> ControlElement.Shape.ROUND_RECT
                                 else -> currentShape
                             }
                             element.setTypeWithoutReset(newType)
+                            // Touchpads always drive a stick
+                            if (newType == ControlElement.Type.TOUCHPAD &&
+                                element.getBindingAt(0) != com.winlator.inputcontrols.Binding.GAMEPAD_LEFT_THUMB_UP
+                            ) {
+                                applyVirtualPreset(element, VirtualPresetType.RIGHT_STICK, view)
+                            }
 
                             // Mark as having unsaved changes
                             hasUnsavedChanges = true
@@ -474,8 +499,9 @@ fun ElementEditorDialog(
                             listOf(ControlElement.Shape.CIRCLE)
                         }
                         ControlElement.Type.TRACKPAD,
+                        ControlElement.Type.TOUCHPAD,
                         ControlElement.Type.RANGE_BUTTON -> {
-                            // Trackpad and Range Button are always rendered as ROUND_RECT
+                            // Trackpad, Touchpad and Range Button are always rendered as ROUND_RECT
                             listOf(ControlElement.Shape.ROUND_RECT)
                         }
                         ControlElement.Type.D_PAD -> {
@@ -553,6 +579,42 @@ fun ElementEditorDialog(
                                 subtitle = { Text(stringResource(R.string.bindings_auto_generated_subtitle)) },
                                 enabled = false,
                                 onClick = {}
+                            )
+                        } else if (element.type == ControlElement.Type.TOUCHPAD) {
+                            val leftStick = element.getBindingAt(0) == com.winlator.inputcontrols.Binding.GAMEPAD_LEFT_THUMB_UP
+                            SettingsListDropdown(
+                                colors = settingsTileColors(),
+                                title = { Text(stringResource(R.string.touchpad_output_stick)) },
+                                subtitle = { Text(stringResource(R.string.touchpad_output_stick_subtitle)) },
+                                value = if (leftStick) 1 else 0,
+                                items = listOf(
+                                    stringResource(R.string.touchpad_stick_right),
+                                    stringResource(R.string.touchpad_stick_left),
+                                ),
+                                onItemSelected = { index ->
+                                    applyVirtualPreset(
+                                        element,
+                                        if (index == 1) VirtualPresetType.LEFT_STICK else VirtualPresetType.RIGHT_STICK,
+                                        view,
+                                    )
+                                    hasUnsavedChanges = true
+                                    bindingsRefreshKey++
+                                }
+                            )
+                            val touchLabel = stringResource(R.string.touchpad_touch_binding)
+                            SettingsMenuLink(
+                                colors = settingsTileColors(),
+                                title = { Text(touchLabel) },
+                                subtitle = {
+                                    Text(
+                                        element.getBindingComboAt(ControlElement.TOUCHPAD_TOUCH_BINDING)
+                                            .takeIf { !it.isEmpty }?.toString()
+                                            ?: stringResource(R.string.touchpad_touch_binding_subtitle)
+                                    )
+                                },
+                                onClick = {
+                                    bindingSlotToEdit = Pair(ControlElement.TOUCHPAD_TOUCH_BINDING, touchLabel)
+                                }
                             )
                         } else {
                             val bindingCount = when (element.type) {
@@ -699,6 +761,69 @@ fun ElementEditorDialog(
                             onCheckedChange = {
                                 currentScrollLocked = it
                                 element.isScrollLocked = it
+                                hasUnsavedChanges = true
+                            },
+                        )
+                    }
+                }
+
+                if (types[currentTypeIndex] == ControlElement.Type.TOUCHPAD) {
+                    SettingsGroup(title = { Text(stringResource(R.string.touchpad_settings)) }) {
+                        SettingsSliderBlock(
+                            title = stringResource(R.string.touchpad_sensitivity),
+                            subtitle = stringResource(R.string.touchpad_sensitivity_subtitle),
+                            value = currentTouchpadSensitivity,
+                            valueRange = 0.1f..10.0f,
+                            valueText = String.format(Locale.US, "%.1fx", currentTouchpadSensitivity),
+                            onValueChange = {
+                                currentTouchpadSensitivity = it
+                                hasUnsavedChanges = true
+                            },
+                            compact = true,
+                        )
+                        SettingsSliderBlock(
+                            title = stringResource(R.string.touchpad_momentum),
+                            subtitle = stringResource(R.string.touchpad_momentum_subtitle),
+                            value = currentTouchpadMomentum,
+                            valueRange = 0f..1f,
+                            valueText = String.format(Locale.US, "%.0f%%", currentTouchpadMomentum * 100),
+                            onValueChange = {
+                                currentTouchpadMomentum = it
+                                hasUnsavedChanges = true
+                            },
+                            compact = true,
+                        )
+                        SettingsSliderBlock(
+                            title = stringResource(R.string.touchpad_acceleration),
+                            subtitle = stringResource(R.string.touchpad_acceleration_subtitle),
+                            value = currentTouchpadAcceleration,
+                            valueRange = -1f..1f,
+                            valueText = String.format(Locale.US, "%+.0f%%", currentTouchpadAcceleration * 100),
+                            onValueChange = {
+                                currentTouchpadAcceleration = it
+                                hasUnsavedChanges = true
+                            },
+                            compact = true,
+                        )
+                        SettingsSliderBlock(
+                            title = stringResource(R.string.touchpad_min_output),
+                            subtitle = stringResource(R.string.touchpad_min_output_subtitle),
+                            value = currentTouchpadMinOutput,
+                            valueRange = 0f..0.5f,
+                            valueText = String.format(Locale.US, "%.0f%%", currentTouchpadMinOutput * 100),
+                            onValueChange = {
+                                currentTouchpadMinOutput = it
+                                hasUnsavedChanges = true
+                            },
+                            compact = true,
+                        )
+                        SettingsSwitch(
+                            colors = settingsTileColorsAlt(),
+                            title = { Text(stringResource(R.string.touchpad_screen_wide)) },
+                            subtitle = { Text(stringResource(R.string.touchpad_screen_wide_subtitle)) },
+                            state = currentTouchpadScreenWide,
+                            onCheckedChange = {
+                                currentTouchpadScreenWide = it
                                 hasUnsavedChanges = true
                             },
                         )

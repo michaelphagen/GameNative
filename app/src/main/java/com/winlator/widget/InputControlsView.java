@@ -1042,7 +1042,7 @@ public class InputControlsView extends View {
         commitGamepadState();
     }
 
-    private void commitGamepadState() {
+    public void commitGamepadState() {
         if (xServer == null || profile == null) return;
         WinHandler winHandler = xServer.getWinHandler();
         if (winHandler != null) {
@@ -1605,6 +1605,14 @@ public class InputControlsView extends View {
                                 y,
                                 touchpadPointers.size() > 0
                         );
+                    }
+                    if (!handled) {
+                        for (ControlElement element : profile.getElements()) {
+                            if (element.handleScreenWideTouchDown(pointerId, x, y)) {
+                                handled = true;
+                                break;
+                            }
+                        }
                     }
                     if (!handled && touchpadView != null) {
                         if (!lookThroughPointerState.isActive()) {

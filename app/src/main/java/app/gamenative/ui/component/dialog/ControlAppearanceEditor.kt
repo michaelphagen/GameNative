@@ -176,7 +176,8 @@ private fun ControlPreviewPill(
             ControlElement.Type.D_PAD -> DPadPreview(normalDrawColor, activeDrawColor, active, strokeScale)
             ControlElement.Type.RANGE_BUTTON -> RangeButtonPreview(normalDrawColor, activeDrawColor, active, orientation, segmentCount, strokeScale)
             ControlElement.Type.STICK -> StickPreview(normalDrawColor, activeDrawColor, active, strokeScale)
-            ControlElement.Type.TRACKPAD -> TrackpadPreview(normalDrawColor, activeDrawColor, active, strokeScale)
+            ControlElement.Type.TRACKPAD,
+            ControlElement.Type.TOUCHPAD -> TrackpadPreview(normalDrawColor, activeDrawColor, active, strokeScale)
             ControlElement.Type.SHOOTER_MODE -> ShooterModePreview(normalDrawColor, activeDrawColor, active, strokeScale)
             else -> ButtonPreview(
                 text = text,

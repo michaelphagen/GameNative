@@ -592,6 +592,23 @@
 
     <!-- Shooter Mode -->
     <string name="shooter_mode_settings">Dynamic Joysticks Settings</string>
+    <string name="touchpad_settings">Touchpad Settings</string>
+    <string name="touchpad_output_stick">Output Stick</string>
+    <string name="touchpad_output_stick_subtitle">Which joystick the touchpad drives</string>
+    <string name="touchpad_stick_right">Right Stick</string>
+    <string name="touchpad_stick_left">Left Stick</string>
+    <string name="touchpad_touch_binding">While Touching</string>
+    <string name="touchpad_touch_binding_subtitle">Held while a finger is on the touchpad. Set it to Gyro to aim with gyro while touching</string>
+    <string name="touchpad_sensitivity">Sensitivity</string>
+    <string name="touchpad_sensitivity_subtitle">How far the stick moves for a given swipe speed</string>
+    <string name="touchpad_momentum">Flick Momentum</string>
+    <string name="touchpad_momentum_subtitle">Keeps the stick gliding after a flick; 0% stops as soon as you lift</string>
+    <string name="touchpad_acceleration">Acceleration</string>
+    <string name="touchpad_acceleration_subtitle">Positive makes slow swipes finer and fast swipes stronger; negative boosts small swipes</string>
+    <string name="touchpad_min_output">Precision Floor</string>
+    <string name="touchpad_min_output_subtitle">Minimum stick output while swiping, so small movements get past the game\'s deadzone</string>
+    <string name="touchpad_screen_wide">Screen-Wide Touchpad</string>
+    <string name="touchpad_screen_wide_subtitle">Swipes anywhere outside other controls drive this touchpad, and the pad is hidden while playing</string>
     <string name="shooter_mode_settings_title">Shooter Mode Settings</string>
     <string name="reset_shooter_settings">Reset Shooter Settings</string>
     <string name="shooter_section_input">Input</string>

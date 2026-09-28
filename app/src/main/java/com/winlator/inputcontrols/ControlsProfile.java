@@ -709,6 +709,11 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
                 if (elementJSONObject.has("shooterLookType")) element.setShooterLookType(elementJSONObject.getString("shooterLookType"));
                 if (elementJSONObject.has("shooterLookSensitivity")) element.setShooterLookSensitivity((float)elementJSONObject.getDouble("shooterLookSensitivity"));
                 if (elementJSONObject.has("shooterJoystickSize")) element.setShooterJoystickSize((float)elementJSONObject.getDouble("shooterJoystickSize"));
+                if (elementJSONObject.has("touchpadSensitivity")) element.setTouchpadSensitivity((float)elementJSONObject.getDouble("touchpadSensitivity"));
+                if (elementJSONObject.has("touchpadScreenWide")) element.setTouchpadScreenWide(elementJSONObject.getBoolean("touchpadScreenWide"));
+                if (elementJSONObject.has("touchpadMomentum")) element.setTouchpadMomentum((float)elementJSONObject.getDouble("touchpadMomentum"));
+                if (elementJSONObject.has("touchpadAcceleration")) element.setTouchpadAcceleration((float)elementJSONObject.getDouble("touchpadAcceleration"));
+                if (elementJSONObject.has("touchpadMinOutput")) element.setTouchpadMinOutput((float)elementJSONObject.getDouble("touchpadMinOutput"));
                 if (elementJSONObject.has("buttonColor")) {
                     element.setButtonColor(ControlElement.parseRgbColor(elementJSONObject.get("buttonColor"), ControlElement.DEFAULT_BUTTON_COLOR));
                 }

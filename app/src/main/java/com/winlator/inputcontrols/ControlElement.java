@@ -32,13 +32,23 @@ public class ControlElement {
     public static final float TRACKPAD_MAX_SPEED = 20.0f;
     public static final byte TRACKPAD_ACCELERATION_THRESHOLD = 4;
     public static final short BUTTON_MIN_TIME_TO_KEEP_PRESSED = 300;
+    // Touchpad: finger speed (snappingSize units per tick) for full stick deflection
+    private static final float TOUCHPAD_STICK_MAX_SPEED = 1.5f;
+    private static final float TOUCHPAD_STICK_SMOOTHING = 0.5f;
+    // Per-tick velocity kept while gliding after a flick, mapped from the momentum setting
+    private static final float TOUCHPAD_FRICTION_MIN = 0.80f;
+    private static final float TOUCHPAD_FRICTION_MAX = 0.98f;
+    private static final float TOUCHPAD_GLIDE_STOP_THRESHOLD = 0.02f;
+    private static final int TOUCHPAD_TICK_MS = 1000 / 60;
+    // Binding slot held while a finger is on the touchpad, after the four stick directions
+    public static final int TOUCHPAD_TOUCH_BINDING = 4;
     public static final int DEFAULT_BUTTON_COLOR = 0x00ffffff;
     public static final int DEFAULT_BUTTON_ACTIVE_COLOR = 0x00ffffff;
     public static final float INHERIT_BUTTON_OPACITY = -1.0f;
     public static final float DEFAULT_BUTTON_STROKE_SCALE = 1.0f;
     public static final boolean DEFAULT_LOOK_THROUGH = false;
     public enum Type {
-        BUTTON, D_PAD, RANGE_BUTTON, STICK, TRACKPAD, SHOOTER_MODE;
+        BUTTON, D_PAD, RANGE_BUTTON, STICK, TRACKPAD, SHOOTER_MODE, TOUCHPAD;
 
         public static String[] names() {
             Type[] types = values();
@@ -102,6 +112,17 @@ public class ControlElement {
     private String shooterLookType = "mouse";
     private float shooterLookSensitivity = 1.0f;
     private float shooterJoystickSize = 1.0f;
+    private float touchpadSensitivity = 1.0f;
+    private boolean touchpadScreenWide = false;
+    private float touchpadMomentum = 0.5f;
+    private float touchpadAcceleration = 0f;
+    private float touchpadMinOutput = 0f;
+    private float touchpadAccumX, touchpadAccumY;
+    private float touchpadOutX, touchpadOutY;
+    private boolean touchpadPointerDown = false;
+    private boolean touchpadTicking = false;
+    private boolean touchpadBindingHeld = false;
+    private final Runnable touchpadTicker = this::tickTouchpad;
     private int buttonColor = DEFAULT_BUTTON_COLOR;
     private int buttonActiveColor = DEFAULT_BUTTON_ACTIVE_COLOR;
     private boolean buttonActiveColorCustom = false;
@@ -144,6 +165,17 @@ public class ControlElement {
             bindings[1] = BindingCombo.of(Binding.MOUSE_MOVE_RIGHT);
             bindings[2] = BindingCombo.of(Binding.MOUSE_MOVE_DOWN);
             bindings[3] = BindingCombo.of(Binding.MOUSE_MOVE_LEFT);
+        }
+        else if (type == Type.TOUCHPAD) {
+            bindings[0] = BindingCombo.of(Binding.GAMEPAD_RIGHT_THUMB_UP);
+            bindings[1] = BindingCombo.of(Binding.GAMEPAD_RIGHT_THUMB_RIGHT);
+            bindings[2] = BindingCombo.of(Binding.GAMEPAD_RIGHT_THUMB_DOWN);
+            bindings[3] = BindingCombo.of(Binding.GAMEPAD_RIGHT_THUMB_LEFT);
+            touchpadSensitivity = 1.0f;
+            touchpadScreenWide = false;
+            touchpadMomentum = 0.5f;
+            touchpadAcceleration = 0f;
+            touchpadMinOutput = 0f;
         }
         else if (type == Type.RANGE_BUTTON) {
             scroller = new RangeScroller(inputControlsView, this);
@@ -371,6 +403,46 @@ public class ControlElement {
         this.shooterJoystickSize = shooterJoystickSize;
     }
 
+    public float getTouchpadSensitivity() {
+        return touchpadSensitivity;
+    }
+
+    public void setTouchpadSensitivity(float touchpadSensitivity) {
+        this.touchpadSensitivity = Mathf.clamp(touchpadSensitivity, 0.1f, 10);
+    }
+
+    public boolean isTouchpadScreenWide() {
+        return touchpadScreenWide;
+    }
+
+    public void setTouchpadScreenWide(boolean touchpadScreenWide) {
+        this.touchpadScreenWide = touchpadScreenWide;
+    }
+
+    public float getTouchpadMomentum() {
+        return touchpadMomentum;
+    }
+
+    public void setTouchpadMomentum(float touchpadMomentum) {
+        this.touchpadMomentum = Mathf.clamp(touchpadMomentum, 0, 1);
+    }
+
+    public float getTouchpadAcceleration() {
+        return touchpadAcceleration;
+    }
+
+    public void setTouchpadAcceleration(float touchpadAcceleration) {
+        this.touchpadAcceleration = Mathf.clamp(touchpadAcceleration, -1, 1);
+    }
+
+    public float getTouchpadMinOutput() {
+        return touchpadMinOutput;
+    }
+
+    public void setTouchpadMinOutput(float touchpadMinOutput) {
+        this.touchpadMinOutput = Mathf.clamp(touchpadMinOutput, 0, 0.5f);
+    }
+
     public int getButtonColor() {
         return buttonColor;
     }
@@ -561,6 +633,7 @@ public class ControlElement {
                 break;
             }
             case TRACKPAD:
+            case TOUCHPAD:
             case STICK: {
                 halfWidth = snappingSize * 6;
                 halfHeight = snappingSize * 6;
@@ -1093,6 +1166,23 @@ public class ControlElement {
                 canvas.drawRoundRect(boundingBox.left + offset, boundingBox.top + offset, boundingBox.right - offset, boundingBox.bottom - offset, radius, radius, paint);
                 break;
             }
+            case TOUCHPAD: {
+                // Screen-wide pads are only drawn while editing
+                if (touchpadScreenWide && !inputControlsView.isEditMode()) break;
+                float radius = boundingBox.height() * 0.15f;
+                canvas.drawRoundRect(boundingBox.left, boundingBox.top, boundingBox.right, boundingBox.bottom, radius, radius, paint);
+                // Stick glyph tells it apart from the mouse trackpad
+                float cx = boundingBox.centerX();
+                float cy = boundingBox.centerY();
+                canvas.drawCircle(cx, cy, snappingSize * 2.5f * scale, paint);
+                int oldColor = paint.getColor();
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(ColorUtils.setAlphaComponent(contentColor, Math.min(50, contentColor >>> 24)));
+                canvas.drawCircle(cx, cy, snappingSize * 1.5f * scale, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setColor(oldColor);
+                break;
+            }
             case SHOOTER_MODE: {
                 float cx = boundingBox.centerX();
                 float cy = boundingBox.centerY();
@@ -1172,6 +1262,14 @@ public class ControlElement {
                 elementJSONObject.put("shooterLookType", shooterLookType);
                 elementJSONObject.put("shooterLookSensitivity", (double) shooterLookSensitivity);
                 elementJSONObject.put("shooterJoystickSize", (double) shooterJoystickSize);
+            }
+
+            if (type == Type.TOUCHPAD) {
+                elementJSONObject.put("touchpadSensitivity", (double) touchpadSensitivity);
+                if (touchpadScreenWide) elementJSONObject.put("touchpadScreenWide", true);
+                elementJSONObject.put("touchpadMomentum", (double) touchpadMomentum);
+                elementJSONObject.put("touchpadAcceleration", (double) touchpadAcceleration);
+                elementJSONObject.put("touchpadMinOutput", (double) touchpadMinOutput);
             }
 
             if (buttonColor != DEFAULT_BUTTON_COLOR) elementJSONObject.put("buttonColor", formatRgbColor(buttonColor));
@@ -1291,6 +1389,10 @@ public class ControlElement {
                 scroller.handleTouchDown(x, y);
                 return true;
             }
+            else if (type == Type.TOUCHPAD) {
+                beginTouchpadTouch(x, y);
+                return true;
+            }
             else {
                 if (type == Type.TRACKPAD) {
                     if (currentPosition == null) currentPosition = new PointF();
@@ -1309,6 +1411,14 @@ public class ControlElement {
         }
 
         if (pointerId == currentPointerId && (type == Type.BUTTON || type == Type.SHOOTER_MODE)) {
+            return true;
+        }
+
+        if (pointerId == currentPointerId && type == Type.TOUCHPAD) {
+            if (currentPosition == null) currentPosition = new PointF(x, y);
+            touchpadAccumX += x - currentPosition.x;
+            touchpadAccumY += y - currentPosition.y;
+            currentPosition.set(x, y);
             return true;
         }
 
@@ -1541,6 +1651,12 @@ public class ControlElement {
                 inputControlsView.setShooterModeActive(selected);
                 inputControlsView.invalidate();
             }
+            else if (type == Type.TOUCHPAD) {
+                // Output keeps gliding from the ticker when momentum is on
+                touchpadPointerDown = false;
+                setTouchpadBindingHeld(false);
+                currentPosition = null;
+            }
             currentPointerId = -1;
             inputControlsView.invalidate();
             return true;
@@ -1549,6 +1665,11 @@ public class ControlElement {
     }
 
     public boolean cancelTouch() {
+        // A flicked touchpad keeps gliding after the finger lifts
+        if (type == Type.TOUCHPAD && touchpadTicking && currentPointerId == -1) {
+            stopTouchpad();
+            return true;
+        }
         if (currentPointerId == -1) return false;
 
         if (radialMenuTouchActive || isRadialMenuButton()) {
@@ -1570,9 +1691,114 @@ public class ControlElement {
             if (type == Type.RANGE_BUTTON) scroller.cancelTouch();
             currentPosition = null;
         }
+        else if (type == Type.TOUCHPAD) {
+            stopTouchpad();
+        }
 
         currentPointerId = -1;
         inputControlsView.invalidate();
         return true;
+    }
+
+    // Claims a touch outside the pad when it is screen-wide and nothing else took the touch
+    public boolean handleScreenWideTouchDown(int pointerId, float x, float y) {
+        if (type != Type.TOUCHPAD || !touchpadScreenWide || currentPointerId != -1) return false;
+        currentPointerId = pointerId;
+        beginTouchpadTouch(x, y);
+        return true;
+    }
+
+    private void beginTouchpadTouch(float x, float y) {
+        if (currentPosition == null) currentPosition = new PointF();
+        currentPosition.set(x, y);
+        touchpadAccumX = 0;
+        touchpadAccumY = 0;
+        touchpadPointerDown = true;
+        setTouchpadBindingHeld(true);
+        if (!touchpadTicking) {
+            touchpadTicking = true;
+            inputControlsView.postDelayed(touchpadTicker, TOUCHPAD_TICK_MS);
+        }
+    }
+
+    // Touchpad as a joystick: stick deflection follows swipe speed, so a resting finger centers
+    // the stick. After lift the output glides out with the momentum setting.
+    private void tickTouchpad() {
+        if (!touchpadTicking) return;
+        float maxSpeed = inputControlsView.getSnappingSize() * TOUCHPAD_STICK_MAX_SPEED;
+        float targetX = 0, targetY = 0;
+        if (touchpadPointerDown && maxSpeed > 0) {
+            targetX = touchpadDeltaToStick(touchpadAccumX, maxSpeed);
+            targetY = touchpadDeltaToStick(touchpadAccumY, maxSpeed);
+        }
+        boolean moving = targetX != 0 || targetY != 0;
+        touchpadAccumX = 0;
+        touchpadAccumY = 0;
+
+        if (!touchpadPointerDown && touchpadMomentum > 0) {
+            float friction = TOUCHPAD_FRICTION_MIN + (TOUCHPAD_FRICTION_MAX - TOUCHPAD_FRICTION_MIN) * touchpadMomentum;
+            touchpadOutX *= friction;
+            touchpadOutY *= friction;
+            if (Mathf.lengthSq(touchpadOutX, touchpadOutY) < TOUCHPAD_GLIDE_STOP_THRESHOLD * TOUCHPAD_GLIDE_STOP_THRESHOLD) {
+                touchpadOutX = 0;
+                touchpadOutY = 0;
+            }
+        }
+        else {
+            touchpadOutX += (targetX - touchpadOutX) * TOUCHPAD_STICK_SMOOTHING;
+            touchpadOutY += (targetY - touchpadOutY) * TOUCHPAD_STICK_SMOOTHING;
+            if (targetX == 0 && Math.abs(touchpadOutX) < 0.02f) touchpadOutX = 0;
+            if (targetY == 0 && Math.abs(touchpadOutY) < 0.02f) touchpadOutY = 0;
+        }
+
+        float sendX = touchpadOutX;
+        float sendY = touchpadOutY;
+        // Precision floor: lift slow swipes past the game's own deadzone, but not the glide
+        float magnitude = (float) Math.sqrt(Mathf.lengthSq(sendX, sendY));
+        if (moving && magnitude > 0 && magnitude < touchpadMinOutput) {
+            sendX *= touchpadMinOutput / magnitude;
+            sendY *= touchpadMinOutput / magnitude;
+        }
+        sendTouchpadStick(sendX, sendY);
+
+        if (touchpadPointerDown || touchpadOutX != 0 || touchpadOutY != 0) {
+            inputControlsView.postDelayed(touchpadTicker, TOUCHPAD_TICK_MS);
+        }
+        else touchpadTicking = false;
+    }
+
+    private void stopTouchpad() {
+        inputControlsView.removeCallbacks(touchpadTicker);
+        touchpadTicking = false;
+        touchpadPointerDown = false;
+        setTouchpadBindingHeld(false);
+        touchpadOutX = 0;
+        touchpadOutY = 0;
+        currentPosition = null;
+        sendTouchpadStick(0, 0);
+    }
+
+    private void setTouchpadBindingHeld(boolean held) {
+        if (touchpadBindingHeld == held || (held && getBindingComboAt(TOUCHPAD_TOUCH_BINDING).isEmpty())) return;
+        touchpadBindingHeld = held;
+        handleBindingInputEvent(TOUCHPAD_TOUCH_BINDING, held);
+    }
+
+    private void sendTouchpadStick(float x, float y) {
+        inputControlsView.handleInputEvent(getBindingAt(1), true, Mathf.clamp(x, -1, 1));
+        inputControlsView.handleInputEvent(getBindingAt(2), true, Mathf.clamp(y, -1, 1));
+        inputControlsView.commitGamepadState();
+    }
+
+    private float touchpadDeltaToStick(float delta, float maxSpeed) {
+        float norm = Math.min(1.0f, Math.abs(delta) * touchpadSensitivity / maxSpeed);
+        if (norm < 0.02f) return 0;
+        if (interpolator == null) interpolator = new CubicBezierInterpolator();
+        interpolator.set(0.075f, 0.95f, 0.45f, 0.95f);
+        float shaped = interpolator.getInterpolation(norm);
+        // Positive acceleration makes slow swipes finer, negative boosts small inputs
+        if (touchpadAcceleration > 0) shaped = (float) Math.pow(shaped, 1 + touchpadAcceleration * 2);
+        else if (touchpadAcceleration < 0) shaped = (float) Math.pow(shaped, 1 / (1 - touchpadAcceleration * 2));
+        return Mathf.clamp(shaped * Math.signum(delta), -1, 1);
     }
 }

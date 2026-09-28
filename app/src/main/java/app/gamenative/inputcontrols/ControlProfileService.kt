@@ -829,6 +829,11 @@ object ControlProfileService {
             optionalFiniteNumber(element, "shooterJoystickSize", 0.1, 5.0)
             optionalFiniteNumber(element, "buttonOpacity", -1.0, 1.0)
             optionalFiniteNumber(element, "buttonStrokeScale", 0.5, 2.0)
+            optionalFiniteNumber(element, "touchpadSensitivity", 0.1, 10.0)
+            optionalFiniteNumber(element, "touchpadMomentum", 0.0, 1.0)
+            optionalFiniteNumber(element, "touchpadAcceleration", -1.0, 1.0)
+            optionalFiniteNumber(element, "touchpadMinOutput", 0.0, 0.5)
+            optionalBoolean(element, "touchpadScreenWide")
             validateOptionalColor(element, "buttonColor")
             validateOptionalColor(element, "buttonActiveColor")
 
