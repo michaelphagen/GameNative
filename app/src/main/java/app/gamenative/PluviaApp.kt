@@ -3,7 +3,10 @@ package app.gamenative
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.StrictMode
+import android.system.ErrnoException
+import android.system.Os
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.Display
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +65,15 @@ class PluviaApp : SplitCompatApplication() {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
+        // libevshim maps the gamepad shared memory as soon as it is loaded into this process and
+        // falls back to /data/data/app.gamenative when this is unset, so set it before any native
+        // library loads.
+        try {
+            Os.setenv("EVSHIM_BASE_PATH", "/data/data/$packageName/files", true)
+        } catch (e: ErrnoException) {
+            Log.e("PluviaApp", "Failed to set EVSHIM_BASE_PATH", e)
+        }
+
         super.onCreate()
         instance = this
 
@@ -80,6 +92,8 @@ class PluviaApp : SplitCompatApplication() {
         } else {
             Timber.plant(ReleaseTree())
         }
+
+        Container.initDefaultPaths(this)
 
         NetworkMonitor.init(this)
 
